@@ -1,0 +1,393 @@
+{% extends 'base.html' %}
+{% block title %}Import from Amazon — Family Library{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center mb-4">
+  <h1 class="h3 fw-bold mb-0"><i class="bi bi-cloud-upload me-2 text-primary"></i>Import from Amazon</h1>
+</div>
+
+<!-- Phase: upload -->
+<div id="phase-upload">
+  <div class="card border-0 shadow-sm">
+    <div class="card-body p-5 text-center">
+      <i class="bi bi-file-earmark-spreadsheet" style="font-size:3rem;color:#adb5bd"></i>
+      <h4 class="mt-3 mb-2">Upload your Amazon order history</h4>
+      <p class="text-muted mb-1">
+        In Amazon go to <strong>Returns &amp; Orders → Download order reports</strong>
+        and export a CSV, then upload it here.
+      </p>
+      <p class="text-muted small mb-4">
+        Books are detected automatically — only items with a 10-digit ISBN as their ASIN will be imported.
+      </p>
+      <label class="btn btn-primary btn-lg mb-2">
+        <i class="bi bi-folder2-open me-2"></i>Choose CSV File
+        <input type="file" id="csv-file" accept=".csv" class="d-none" />
+      </label>
+      <div class="text-muted small">Supports <code>Retail.OrderHistory.*.csv</code></div>
+    </div>
+  </div>
+</div>
+
+<!-- Phase: analyzing -->
+<div id="phase-analyzing" class="d-none">
+  <div class="card border-0 shadow-sm">
+    <div class="card-body p-4">
+      <h5 class="fw-semibold mb-3">
+        <span class="spinner-border spinner-border-sm me-2 text-primary"></span>Looking up books…
+      </h5>
+      <div class="progress mb-2" style="height:6px">
+        <div id="lookup-progress" class="progress-bar" role="progressbar" style="width:0%"></div>
+      </div>
+      <div class="text-muted small" id="lookup-status">Scanning order history…</div>
+    </div>
+  </div>
+</div>
+
+<!-- Phase: review -->
+<div id="phase-review" class="d-none">
+  <div class="d-flex align-items-center justify-content-between mb-3 gap-3">
+    <div>
+      <h4 class="fw-bold mb-0" id="review-heading"></h4>
+      <div class="text-muted small mt-1" id="review-sub"></div>
+    </div>
+    <button class="btn btn-primary flex-shrink-0" id="import-btn" disabled>
+      <i class="bi bi-cloud-download me-1"></i><span id="import-btn-label">Import</span>
+    </button>
+  </div>
+
+  <div class="card border-0 shadow-sm">
+    <div class="card-header bg-white py-2 px-3 border-bottom">
+      <div class="form-check mb-0">
+        <input class="form-check-input" type="checkbox" id="select-all" checked />
+        <label class="form-check-label fw-semibold small" for="select-all">Select all</label>
+      </div>
+    </div>
+    <div id="book-list"></div>
+  </div>
+</div>
+
+<!-- Phase: importing -->
+<div id="phase-importing" class="d-none">
+  <div class="card border-0 shadow-sm">
+    <div class="card-body p-4">
+      <h5 class="fw-semibold mb-3">
+        <span class="spinner-border spinner-border-sm me-2 text-success"></span>Importing…
+      </h5>
+      <div class="progress mb-2" style="height:6px">
+        <div id="import-progress" class="progress-bar bg-success" role="progressbar" style="width:0%"></div>
+      </div>
+      <div class="text-muted small" id="import-status"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Phase: done -->
+<div id="phase-done" class="d-none">
+  <div class="alert alert-success d-flex align-items-center gap-3 mb-3">
+    <i class="bi bi-check-circle-fill fs-4 flex-shrink-0"></i>
+    <div>
+      <div class="fw-semibold" id="done-message"></div>
+      <a href="{{ url_for('books.index') }}" class="alert-link small">View all books →</a>
+    </div>
+  </div>
+  <div id="done-errors"></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const currentUserId = {{ current_user.id }};
+const isAdmin = {{ 'true' if current_user.is_admin else 'false' }};
+const allUsers = [{% for u in users %}{"id":{{ u.id }},"name":{{ u.display_name | tojson }},"color":{{ u.color | tojson }}}{% if not loop.last %},{% endif %}{% endfor %}];
+const visibleUsers = isAdmin ? allUsers : allUsers.filter(u => u.id === currentUserId);
+
+// ── CSV parsing ───────────────────────────────────────────────
+function parseCSV(text) {
+  const rows = [];
+  let row = [], cur = '', inQ = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inQ) {
+      if (ch === '"' && text[i + 1] === '"') { cur += '"'; i++; }
+      else if (ch === '"') inQ = false;
+      else cur += ch;
+    } else {
+      if (ch === '"') { inQ = true; }
+      else if (ch === ',') { row.push(cur.trim()); cur = ''; }
+      else if (ch === '\n' || ch === '\r') {
+        if (ch === '\r' && text[i + 1] === '\n') i++;
+        row.push(cur.trim()); rows.push(row); row = []; cur = '';
+      } else cur += ch;
+    }
+  }
+  if (cur || row.length) { row.push(cur.trim()); rows.push(row); }
+  return rows;
+}
+
+function colIdx(headers, ...needles) {
+  return headers.findIndex(h => needles.some(n => h.toLowerCase().includes(n.toLowerCase())));
+}
+
+// ISBN-10: 10 digits, or 9 digits + X/x
+function isISBN(asin) {
+  return /^\d{10}$/.test(asin) || /^\d{9}[Xx]$/.test(asin);
+}
+
+function conditionFromAmazon(raw) {
+  const s = (raw || '').toLowerCase();
+  if (s.includes('like new'))  return 'like_new';
+  if (s.includes('very good')) return 'very_good';
+  if (s.includes('good'))      return 'good';
+  if (s.includes('acceptable'))return 'acceptable';
+  if (s.includes('poor'))      return 'poor';
+  return 'new';
+}
+
+// ── State ─────────────────────────────────────────────────────
+let bookItems = []; // { data, condition, userId, selected }
+
+// ── File input ────────────────────────────────────────────────
+document.getElementById('csv-file').addEventListener('change', async function () {
+  if (!this.files[0]) return;
+  const text = await this.files[0].text();
+  await processCSV(text);
+});
+
+async function processCSV(text) {
+  showPhase('analyzing');
+
+  const rows = parseCSV(text).filter(r => r.some(c => c !== ''));
+  if (rows.length < 2) { alert('CSV appears empty or invalid.'); showPhase('upload'); return; }
+
+  const headers = rows[0];
+  const asinIdx  = colIdx(headers, 'asin');
+  const nameIdx  = colIdx(headers, 'product name', 'title');
+  const condIdx  = colIdx(headers, 'product condition', 'condition');
+
+  if (asinIdx === -1) {
+    alert('Could not find an ASIN column. Is this an Amazon order history CSV?');
+    showPhase('upload');
+    return;
+  }
+
+  // Deduplicate ISBN candidates
+  const seen = new Set();
+  const candidates = rows.slice(1).filter(row => {
+    const asin = (row[asinIdx] || '').trim();
+    if (!isISBN(asin) || seen.has(asin)) return false;
+    seen.add(asin);
+    return true;
+  });
+
+  if (candidates.length === 0) {
+    alert('No book ISBNs found in this CSV. Non-book ASINs (starting with "B") are skipped automatically.');
+    showPhase('upload');
+    return;
+  }
+
+  // Look up each ISBN
+  const found = [];
+  for (let i = 0; i < candidates.length; i++) {
+    const row = candidates[i];
+    const asin = row[asinIdx].trim();
+    const csvName = nameIdx >= 0 ? row[nameIdx] : asin;
+    const csvCond = condIdx >= 0 ? row[condIdx] : 'New';
+
+    setProgress('lookup', i, candidates.length,
+      `${i + 1} of ${candidates.length}: "${csvName.slice(0, 60)}${csvName.length > 60 ? '…' : ''}"`);
+
+    try {
+      const res = await fetch(`/api/lookup/${asin}`);
+      if (res.ok) {
+        const data = await res.json();
+        found.push({ data, condition: conditionFromAmazon(csvCond) });
+      }
+    } catch {}
+
+    if (i < candidates.length - 1) await sleep(150);
+  }
+
+  setProgress('lookup', candidates.length, candidates.length, 'Done');
+  renderReview(found, candidates.length - found.length);
+}
+
+// ── Review ────────────────────────────────────────────────────
+function renderReview(found, skipped) {
+  bookItems = found.map(f => ({
+    data: f.data,
+    condition: f.condition,
+    userId: currentUserId,
+    selected: true,
+  }));
+
+  document.getElementById('review-heading').textContent =
+    `${found.length} book${found.length !== 1 ? 's' : ''} found`;
+
+  const parts = [];
+  if (skipped > 0) parts.push(`${skipped} item${skipped !== 1 ? 's' : ''} not found in book databases`);
+  document.getElementById('review-sub').textContent = parts.join(' · ');
+
+  const list = document.getElementById('book-list');
+  list.innerHTML = '';
+
+  bookItems.forEach((item, idx) => {
+    const d = item.data;
+    const owners = d.owners || [];
+    const alreadyOwns = owners.some(o => o.id === item.userId);
+    const ownerLabel = owners.length
+      ? owners.map(o => escHtml(o.name)).join(', ')
+      : null;
+
+    const row = document.createElement('div');
+    row.className = 'p-3 border-bottom d-flex align-items-center gap-3';
+
+    row.innerHTML = `
+      <input type="checkbox" class="form-check-input flex-shrink-0 item-check" ${item.selected ? 'checked' : ''} />
+      <div class="flex-shrink-0" style="width:42px">
+        ${d.cover_url
+          ? `<img src="${escHtml(d.cover_url)}" style="width:42px;height:58px;object-fit:cover;border-radius:4px;box-shadow:0 1px 4px rgba(0,0,0,.15)" onerror="this.style.display='none'">`
+          : `<div style="width:42px;height:58px;background:#e9ecef;border-radius:4px;display:flex;align-items:center;justify-content:center"><i class="bi bi-book text-muted"></i></div>`}
+      </div>
+      <div class="flex-grow-1" style="min-width:0">
+        <div class="fw-semibold text-truncate">${escHtml(d.title)}</div>
+        ${d.author ? `<div class="text-muted small text-truncate">${escHtml(d.author)}</div>` : ''}
+        <div class="mt-1">
+          ${ownerLabel
+            ? `<span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle">Already owned by ${ownerLabel}</span>`
+            : `<span class="badge bg-success-subtle text-success-emphasis border border-success-subtle">New to library</span>`}
+        </div>
+      </div>
+      <div class="flex-shrink-0 d-flex flex-column gap-1" style="min-width:140px">
+        <div class="user-col">
+          <div class="text-muted small mb-1">Add for</div>
+          <select class="form-select form-select-sm user-sel">
+            ${visibleUsers.map(u =>
+              `<option value="${u.id}"${u.id === currentUserId ? ' selected' : ''}>${escHtml(u.name)}</option>`
+            ).join('')}
+          </select>
+        </div>
+        <div>
+          <div class="text-muted small mb-1">Condition</div>
+          <select class="form-select form-select-sm cond-sel">
+            <option value="new"${item.condition === 'new' ? ' selected' : ''}>New</option>
+            <option value="like_new"${item.condition === 'like_new' ? ' selected' : ''}>Like New</option>
+            <option value="very_good"${item.condition === 'very_good' ? ' selected' : ''}>Very Good</option>
+            <option value="good"${item.condition === 'good' ? ' selected' : ''}>Good</option>
+            <option value="acceptable"${item.condition === 'acceptable' ? ' selected' : ''}>Acceptable</option>
+            <option value="poor"${item.condition === 'poor' ? ' selected' : ''}>Poor</option>
+          </select>
+        </div>
+      </div>`;
+
+    // Hide user selector for non-admins (only themselves visible anyway, but cleaner)
+    if (!isAdmin) row.querySelector('.user-col').style.display = 'none';
+
+    row.querySelector('.item-check').addEventListener('change', function () {
+      bookItems[idx].selected = this.checked;
+      syncSelectAll();
+      updateImportBtn();
+    });
+    row.querySelector('.user-sel').addEventListener('change', function () {
+      bookItems[idx].userId = parseInt(this.value);
+    });
+    row.querySelector('.cond-sel').addEventListener('change', function () {
+      bookItems[idx].condition = this.value;
+    });
+
+    list.appendChild(row);
+  });
+
+  updateImportBtn();
+  showPhase('review');
+}
+
+function updateImportBtn() {
+  const n = bookItems.filter(i => i.selected).length;
+  document.getElementById('import-btn-label').textContent = `Import ${n} Book${n !== 1 ? 's' : ''}`;
+  document.getElementById('import-btn').disabled = n === 0;
+}
+
+function syncSelectAll() {
+  const checks = [...document.querySelectorAll('.item-check')];
+  const all = checks.every(c => c.checked);
+  const none = checks.every(c => !c.checked);
+  const el = document.getElementById('select-all');
+  el.checked = all;
+  el.indeterminate = !all && !none;
+}
+
+document.getElementById('select-all').addEventListener('change', function () {
+  document.querySelectorAll('.item-check').forEach((cb, i) => {
+    cb.checked = this.checked;
+    bookItems[i].selected = this.checked;
+  });
+  updateImportBtn();
+});
+
+// ── Import ────────────────────────────────────────────────────
+document.getElementById('import-btn').addEventListener('click', async () => {
+  const queue = bookItems.filter(i => i.selected);
+  showPhase('importing');
+
+  let imported = 0, skipped = 0;
+  const errors = [];
+
+  for (let i = 0; i < queue.length; i++) {
+    const { data: d, condition, userId } = queue[i];
+    setProgress('import', i, queue.length, `"${d.title.slice(0, 50)}"`);
+
+    try {
+      const res = await fetch('/api/books', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          isbn: d.isbn, title: d.title, author: d.author || '',
+          publisher: d.publisher || '', published_year: d.published_year || '',
+          description: d.description || '', cover_url: d.cover_url || '',
+          page_count: d.page_count || null, genre: d.genre || '',
+          language: d.language || '', user_id: userId, condition,
+        }),
+      });
+      const result = await res.json();
+      if (result.success) imported++;
+      else if (res.status === 409) { skipped++; } // already owns
+      else errors.push(`${escHtml(d.title)}: ${escHtml(result.error || 'Unknown error')}`);
+    } catch {
+      errors.push(`${escHtml(d.title)}: Network error`);
+    }
+  }
+
+  setProgress('import', queue.length, queue.length, 'Done');
+
+  const parts = [`${imported} book${imported !== 1 ? 's' : ''} imported`];
+  if (skipped) parts.push(`${skipped} already owned`);
+  if (errors.length) parts.push(`${errors.length} failed`);
+  document.getElementById('done-message').textContent = parts.join(' · ');
+  document.getElementById('done-errors').innerHTML = errors.map(e =>
+    `<div class="alert alert-warning py-2 small mb-2">${e}</div>`
+  ).join('');
+
+  showPhase('done');
+});
+
+// ── Utilities ─────────────────────────────────────────────────
+function showPhase(name) {
+  ['upload', 'analyzing', 'review', 'importing', 'done'].forEach(p =>
+    document.getElementById(`phase-${p}`).classList.toggle('d-none', p !== name)
+  );
+}
+
+function setProgress(which, done, total, label) {
+  const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+  document.getElementById(`${which}-progress`).style.width = pct + '%';
+  if (which === 'lookup') document.getElementById('lookup-status').textContent = label;
+  if (which === 'import') document.getElementById('import-status').textContent = label;
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+function escHtml(s) {
+  return (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+</script>
+{% endblock %}

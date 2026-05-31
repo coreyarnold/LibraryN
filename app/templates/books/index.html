@@ -1,0 +1,156 @@
+{% extends 'base.html' %}
+{% block title %}All Books — Family Library{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-4 flex-wrap gap-2">
+  <h1 class="h3 fw-bold mb-0"><i class="bi bi-collection me-2 text-primary"></i>All Books</h1>
+  <a href="{{ url_for('books.scan') }}" class="btn btn-primary">
+    <i class="bi bi-upc-scan me-2"></i>Scan a Book
+  </a>
+</div>
+
+<!-- Search & filters -->
+<form method="get" class="row g-2 mb-4">
+  <div class="col-sm-6 col-md-5">
+    <div class="input-group">
+      <span class="input-group-text"><i class="bi bi-search"></i></span>
+      <input type="text" class="form-control" name="q" value="{{ search }}"
+             placeholder="Search title, author, or ISBN…" />
+    </div>
+  </div>
+  <div class="col-sm-4 col-md-3">
+    <select class="form-select" name="user_id">
+      <option value="">All family members</option>
+      {% for user in users %}
+      <option value="{{ user.id }}" {% if filter_user_id == user.id %}selected{% endif %}>
+        {{ user.display_name }}
+      </option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="col-auto">
+    <button type="submit" class="btn btn-outline-primary">Filter</button>
+    {% if search or filter_user_id %}
+    <a href="{{ url_for('books.index') }}" class="btn btn-outline-secondary ms-1">Clear</a>
+    {% endif %}
+  </div>
+</form>
+
+<!-- Results -->
+{% if pagination.items %}
+<div class="table-responsive">
+  <table class="table table-hover align-middle">
+    <thead class="table-light">
+      <tr>
+        <th style="width:60px"></th>
+        <th>Title</th>
+        <th>Author</th>
+        <th>Year</th>
+        <th>Owner</th>
+        <th>Condition</th>
+        <th>Status</th>
+        <th>Location</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for ub in pagination.items %}
+      <tr class="clickable-row" data-href="{{ url_for('books.detail', book_id=ub.book.id) }}">
+        <td>
+          {% if ub.book.cover_url %}
+          <img src="{{ ub.book.cover_url }}" alt="" class="book-thumb" />
+          {% else %}
+          <div class="book-thumb-placeholder"><i class="bi bi-book"></i></div>
+          {% endif %}
+        </td>
+        <td>
+          <a href="{{ url_for('books.detail', book_id=ub.book.id) }}" class="fw-semibold text-decoration-none text-dark">
+            {{ ub.book.title }}
+          </a>
+          <div class="font-monospace text-muted" style="font-size:.75rem">ISBN {{ ub.book.isbn }}</div>
+        </td>
+        <td class="text-muted">{{ ub.book.author or '—' }}</td>
+        <td class="text-muted">{{ ub.book.published_year or '—' }}</td>
+        <td>
+          <span class="badge rounded-pill px-2 py-1 text-white" style="background:{{ ub.user.color }}">
+            {{ ub.user.display_name }}
+          </span>
+        </td>
+        <td>
+          <span class="condition-badge condition-{{ ub.condition }}">
+            {{ ub.CONDITION_LABELS.get(ub.condition, ub.condition) }}
+          </span>
+        </td>
+        <td>
+          {% if ub.reading_status == 'read' %}
+          <span class="reading-badge reading-read"><i class="bi bi-check-circle-fill"></i>Read</span>
+          {% elif ub.reading_status == 'currently-reading' %}
+          <span class="reading-badge reading-current"><i class="bi bi-book-fill"></i>Reading</span>
+          {% elif ub.reading_status == 'to-read' %}
+          <span class="reading-badge reading-want"><i class="bi bi-bookmark-fill"></i>Want</span>
+          {% else %}
+          <span class="text-muted">—</span>
+          {% endif %}
+        </td>
+        <td class="text-muted small">{{ ub.location or '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<!-- Pagination -->
+{% if pagination.pages > 1 %}
+<nav class="mt-3">
+  <ul class="pagination justify-content-center">
+    <li class="page-item {% if not pagination.has_prev %}disabled{% endif %}">
+      <a class="page-link" href="{{ url_for('books.index', q=search, user_id=filter_user_id, page=pagination.prev_num) }}">
+        <i class="bi bi-chevron-left"></i>
+      </a>
+    </li>
+    {% for p in pagination.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
+      {% if p %}
+      <li class="page-item {% if p == pagination.page %}active{% endif %}">
+        <a class="page-link" href="{{ url_for('books.index', q=search, user_id=filter_user_id, page=p) }}">{{ p }}</a>
+      </li>
+      {% else %}
+      <li class="page-item disabled"><span class="page-link">…</span></li>
+      {% endif %}
+    {% endfor %}
+    <li class="page-item {% if not pagination.has_next %}disabled{% endif %}">
+      <a class="page-link" href="{{ url_for('books.index', q=search, user_id=filter_user_id, page=pagination.next_num) }}">
+        <i class="bi bi-chevron-right"></i>
+      </a>
+    </li>
+  </ul>
+</nav>
+<p class="text-center text-muted small">
+  Showing {{ pagination.items|length }} of {{ pagination.total }} entries
+</p>
+{% endif %}
+
+{% else %}
+<div class="empty-state">
+  <i class="bi bi-search display-1 text-muted"></i>
+  <h4 class="mt-3 text-muted">No books found</h4>
+  {% if search %}
+  <p class="text-muted">No results for "{{ search }}".</p>
+  <a href="{{ url_for('books.index') }}" class="btn btn-outline-secondary mt-2">Clear search</a>
+  {% else %}
+  <a href="{{ url_for('books.scan') }}" class="btn btn-primary mt-2">
+    <i class="bi bi-upc-scan me-2"></i>Scan a Book
+  </a>
+  {% endif %}
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.querySelectorAll('.clickable-row').forEach(row => {
+  row.style.cursor = 'pointer';
+  row.addEventListener('click', e => {
+    if (!e.target.closest('a')) window.location.href = row.dataset.href;
+  });
+});
+</script>
+{% endblock %}

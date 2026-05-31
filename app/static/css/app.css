@@ -1,0 +1,272 @@
+:root {
+  --shadow-sm: 0 1px 3px rgba(0,0,0,.08), 0 1px 2px rgba(0,0,0,.06);
+}
+
+body {
+  background: #f8f9fc;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* ── Auth ── */
+.login-card {
+  background: #fff;
+  border-radius: 16px;
+  padding: 2.5rem;
+  width: 100%;
+  max-width: 420px;
+  box-shadow: 0 8px 40px rgba(0,0,0,.12);
+}
+
+/* ── User avatar ── */
+.user-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  color: #fff;
+  font-weight: 700;
+  font-size: .85rem;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  position: relative;
+  overflow: hidden;
+}
+.user-avatar-sm  { width: 22px; height: 22px; font-size: .7rem; }
+.user-avatar-lg  { width: 48px; height: 48px; font-size: 1.2rem; }
+.user-avatar-xl  { width: 72px; height: 72px; font-size: 1.8rem; }
+.user-avatar img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+
+/* ── Stat cards ── */
+.stat-card {
+  background: #fff;
+  border-radius: 12px;
+  padding: 1.25rem 1.5rem;
+  box-shadow: var(--shadow-sm);
+  text-align: center;
+}
+.stat-number {
+  font-size: 2.2rem;
+  font-weight: 800;
+  color: #0d6efd;
+  line-height: 1;
+}
+.stat-label {
+  color: #6c757d;
+  font-size: .85rem;
+  margin-top: .25rem;
+}
+
+/* ── Member tabs ── */
+.member-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: .35rem;
+  padding: .4rem .9rem;
+  border-radius: 999px;
+  border: 1.5px solid #dee2e6;
+  background: #fff;
+  color: #495057;
+  text-decoration: none;
+  font-size: .875rem;
+  font-weight: 500;
+  transition: all .15s;
+}
+.member-tab:hover {
+  border-color: var(--tab-color, #0d6efd);
+  color: var(--tab-color, #0d6efd);
+}
+.member-tab.active {
+  background: var(--tab-color, #0d6efd);
+  border-color: var(--tab-color, #0d6efd);
+  color: #fff;
+}
+
+/* ── Book cards ── */
+.book-card {
+  background: #fff;
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+  transition: transform .15s, box-shadow .15s;
+}
+.book-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 6px 20px rgba(0,0,0,.1);
+}
+.book-cover {
+  position: relative;
+  aspect-ratio: 2/3;
+  background: #e9ecef;
+  overflow: hidden;
+}
+.book-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.book-cover-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2.5rem;
+  color: #adb5bd;
+}
+.book-owner-badge {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  color: #fff;
+  font-size: .7rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 1px 4px rgba(0,0,0,.3);
+  overflow: hidden;
+}
+.book-owner-badge img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.book-info {
+  padding: .6rem .75rem .75rem;
+}
+.book-title {
+  font-weight: 600;
+  font-size: .8rem;
+  color: #212529;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  line-height: 1.3;
+}
+.book-author {
+  font-size: .72rem;
+  margin-top: .2rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Table ── */
+.book-thumb {
+  width: 40px;
+  height: 56px;
+  object-fit: cover;
+  border-radius: 4px;
+  box-shadow: var(--shadow-sm);
+}
+.book-thumb-placeholder {
+  width: 40px;
+  height: 56px;
+  border-radius: 4px;
+  background: #e9ecef;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #adb5bd;
+}
+
+/* ── Condition badges ── */
+.condition-badge {
+  display: inline-block;
+  padding: .15em .55em;
+  border-radius: 4px;
+  font-size: .75rem;
+  font-weight: 600;
+}
+.condition-new       { background: #d1fae5; color: #065f46; }
+.condition-like_new  { background: #d1fae5; color: #065f46; }
+.condition-very_good { background: #dbeafe; color: #1e40af; }
+.condition-good      { background: #ede9fe; color: #4c1d95; }
+.condition-acceptable{ background: #fef3c7; color: #92400e; }
+.condition-poor      { background: #fee2e2; color: #991b1b; }
+
+/* ── Book detail ── */
+.book-detail-cover {
+  width: 100%;
+  max-width: 180px;
+  border-radius: 8px;
+}
+.book-detail-cover-placeholder {
+  width: 100%;
+  max-width: 180px;
+  aspect-ratio: 2/3;
+  background: #e9ecef;
+  border-radius: 8px;
+}
+
+/* ── Color swatches ── */
+.color-swatch-label { cursor: pointer; }
+.color-swatch {
+  display: block;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 3px solid transparent;
+  transition: border-color .15s, transform .15s;
+}
+.color-swatch.selected,
+.color-swatch-label:hover .color-swatch {
+  border-color: #212529;
+  transform: scale(1.15);
+}
+
+/* ── Reading status ── */
+.reading-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: .25rem;
+  padding: .15em .55em;
+  border-radius: 4px;
+  font-size: .75rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.reading-read         { background: #d1fae5; color: #065f46; }
+.reading-current      { background: #dbeafe; color: #1e40af; }
+.reading-want         { background: #fef3c7; color: #92400e; }
+.reading-badge-cover {
+  position: absolute;
+  bottom: 5px;
+  left: 5px;
+  display: inline-flex;
+  align-items: center;
+  padding: .15em .4em;
+  border-radius: 4px;
+  font-size: .65rem;
+  font-weight: 700;
+  line-height: 1.3;
+  pointer-events: none;
+}
+
+/* ── Empty state ── */
+.empty-state {
+  text-align: center;
+  padding: 4rem 1rem;
+}
+
+/* ── User select buttons (scan page) ── */
+.user-select-btn {
+  border-color: #dee2e6;
+  transition: all .15s;
+}
+.user-select-btn.active {
+  background: var(--user-color, #0d6efd);
+  border-color: var(--user-color, #0d6efd);
+  color: #fff;
+}
+
+/* ── Scan result card ── */
+.scan-result-card {
+  border-left: 4px solid #0d6efd;
+  animation: slideIn .2s ease-out;
+}
+@keyframes slideIn {
+  from { opacity: 0; transform: translateY(-8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}

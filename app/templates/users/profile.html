@@ -1,0 +1,112 @@
+{% extends 'base.html' %}
+{% block title %}My Profile — Family Library{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-md-6 col-lg-5">
+    <h1 class="h3 fw-bold mb-4"><i class="bi bi-person me-2 text-primary"></i>My Profile</h1>
+
+    <div class="card border-0 shadow-sm">
+      <div class="card-body p-4">
+        <div class="text-center mb-4">
+          <div class="user-avatar user-avatar-xl mx-auto" style="background:{{ current_user.color }}">
+            {% if current_user.gravatar_url %}
+            <img src="{{ current_user.gravatar_url }}" alt="" onerror="this.remove()">
+            {% endif %}
+            {{ current_user.display_name[0].upper() }}
+          </div>
+          <div class="mt-2 text-muted small font-monospace">@{{ current_user.username }}</div>
+          <div class="text-muted small">{{ current_user.book_count }} book{{ 's' if current_user.book_count != 1 }}</div>
+        </div>
+
+        <form method="post" action="{{ url_for('users.profile') }}">
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Display Name</label>
+            <input type="text" class="form-control" name="display_name" value="{{ current_user.display_name }}" />
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Email <small class="text-muted fw-normal">(used for Gravatar)</small></label>
+            <input type="email" class="form-control" name="email" value="{{ current_user.email or '' }}" />
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-semibold">
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 48 48" class="me-1" style="vertical-align:-.1em">
+                <path fill="#E9722E" d="M24 4C13 4 4 13 4 24s9 20 20 20 20-9 20-20S35 4 24 4z"/>
+                <path fill="#fff" d="M24 10c-7.7 0-14 6.3-14 14s6.3 14 14 14 14-6.3 14-14S31.7 10 24 10zm0 22c-4.4 0-8-3.6-8-8s3.6-8 8-8 8 3.6 8 8-3.6 8-8 8z"/>
+              </svg>
+              Goodreads User ID <small class="text-muted fw-normal">(optional)</small>
+            </label>
+            <input type="text" class="form-control font-monospace" name="goodreads_user_id"
+                   value="{{ current_user.goodreads_user_id or '' }}"
+                   placeholder="e.g. 12345678" />
+            <div class="form-text">
+              Find it in your Goodreads profile URL:
+              <code>goodreads.com/user/show/<strong>12345678</strong>-username</code>.
+              Your shelves must be set to public.
+            </div>
+          </div>
+          <hr />
+          <p class="text-muted small">Change password (leave blank to keep current):</p>
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Current Password</label>
+            <input type="password" class="form-control" name="current_password" autocomplete="current-password" />
+          </div>
+          <div class="mb-4">
+            <label class="form-label fw-semibold">New Password</label>
+            <input type="password" class="form-control" name="new_password" autocomplete="new-password" />
+          </div>
+          <button type="submit" class="btn btn-primary w-100">Save Changes</button>
+        </form>
+
+        {% if current_user.goodreads_user_id %}
+        <hr />
+        <div class="d-flex align-items-center justify-content-between gap-2">
+          <div>
+            <div class="fw-semibold small">Goodreads Sync</div>
+            <div class="text-muted" style="font-size:.8rem">Match your library against your Goodreads shelves.</div>
+          </div>
+          <button class="btn btn-sm btn-outline-secondary flex-shrink-0" id="sync-gr-btn">
+            <i class="bi bi-arrow-repeat me-1"></i>Sync Now
+          </button>
+        </div>
+        <div id="sync-gr-result" class="mt-2"></div>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="text-center mt-3">
+      <a href="{{ url_for('books.dashboard') }}" class="text-muted small">
+        <i class="bi bi-arrow-left me-1"></i>Back to Dashboard
+      </a>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{% if current_user.goodreads_user_id %}
+<script>
+document.getElementById('sync-gr-btn').addEventListener('click', async function () {
+  const btn = this;
+  const resultEl = document.getElementById('sync-gr-result');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Syncing…';
+  resultEl.innerHTML = '';
+  try {
+    const res = await fetch('/api/goodreads/sync', { method: 'POST' });
+    const data = await res.json();
+    if (data.success) {
+      resultEl.innerHTML = `<div class="alert alert-success py-2 mb-0 small">${data.message}</div>`;
+    } else {
+      resultEl.innerHTML = `<div class="alert alert-danger py-2 mb-0 small">${data.error}</div>`;
+    }
+  } catch {
+    resultEl.innerHTML = '<div class="alert alert-danger py-2 mb-0 small">Network error. Try again.</div>';
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-arrow-repeat me-1"></i>Sync Now';
+  }
+});
+</script>
+{% endif %}
+{% endblock %}

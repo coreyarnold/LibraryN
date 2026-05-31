@@ -1,0 +1,42 @@
+# MySQL variant: two containers (web app + MySQL database)
+services:
+  library:
+    build: .
+    container_name: family-library
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      - SECRET_KEY=${SECRET_KEY:-change-me-in-production}
+      - DB_TYPE=mysql
+      - MYSQL_HOST=db
+      - MYSQL_PORT=3306
+      - MYSQL_USER=${MYSQL_USER:-librarian}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD:-library_pass}
+      - MYSQL_DATABASE=${MYSQL_DATABASE:-library}
+      - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-changeme}
+      - ADMIN_DISPLAY_NAME=${ADMIN_DISPLAY_NAME:-Admin}
+
+  db:
+    image: mysql:8.0
+    container_name: family-library-db
+    restart: unless-stopped
+    environment:
+      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD:-root_pass}
+      - MYSQL_DATABASE=${MYSQL_DATABASE:-library}
+      - MYSQL_USER=${MYSQL_USER:-librarian}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD:-library_pass}
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-root_pass}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  mysql-data:
