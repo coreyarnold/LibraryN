@@ -8,11 +8,60 @@
       <h1 class="h3 fw-bold mb-0"><i class="bi bi-upc-scan me-2 text-primary"></i>Scan a Book</h1>
     </div>
 
-    <!-- Scanner input -->
     <div class="card shadow-sm mb-4">
       <div class="card-body p-4">
+
+        <!-- Session settings — persist until page hard-refresh -->
+        <div class="row g-2 mb-3">
+          <div class="col-sm-7 col-lg-5">
+            <label class="form-label small fw-semibold mb-1">
+              <i class="bi bi-geo-alt me-1"></i>Location
+              <span class="text-muted fw-normal">(applies to all scans)</span>
+            </label>
+            <input type="text" id="session-location" class="form-control"
+                   placeholder="e.g. Living Room Shelf A"
+                   autocomplete="off" />
+          </div>
+          <div class="col-sm-5 col-lg-3">
+            <label class="form-label small fw-semibold mb-1">Condition</label>
+            <select class="form-select" id="session-condition">
+              <option value="new">New</option>
+              <option value="like_new">Like New</option>
+              <option value="very_good">Very Good</option>
+              <option value="good" selected>Good</option>
+              <option value="acceptable">Acceptable</option>
+              <option value="poor">Poor</option>
+            </select>
+          </div>
+        </div>
+
+        {% if current_user.is_admin %}
+        <div class="mb-3">
+          <label class="form-label small fw-semibold mb-1">Adding for:</label>
+          <div class="d-flex flex-wrap gap-2" id="user-selector">
+            {% for user in users %}
+            <button type="button" class="btn btn-sm btn-outline-secondary user-select-btn
+                    {% if user.id == current_user.id %}active{% endif %}"
+                    data-user-id="{{ user.id }}" data-user-name="{{ user.display_name }}">
+              <span class="user-avatar user-avatar-sm me-1" style="background:{{ user.color }}">
+                {% if user.gravatar_url %}
+                <img src="{{ user.gravatar_url }}" alt="" onerror="this.remove()">
+                {% endif %}
+                {{ user.display_name[0].upper() }}
+              </span>
+              {{ user.display_name }}
+            </button>
+            {% endfor %}
+          </div>
+        </div>
+        {% endif %}
+
+        <hr class="my-3" />
+
+        <!-- ISBN input -->
         <p class="text-muted mb-3">
           Point your scanner at a book's barcode, or type an ISBN manually and press Enter.
+          Books are added automatically.
         </p>
         <div class="input-group input-group-lg">
           <span class="input-group-text bg-primary text-white border-primary">
@@ -22,39 +71,19 @@
                  placeholder="Scan barcode or type ISBN..."
                  autocomplete="off" autocorrect="off" spellcheck="false" />
           <button class="btn btn-primary" id="lookup-btn" type="button">
-            <i class="bi bi-search"></i> Look Up
+            <i class="bi bi-plus-circle"></i> Add
           </button>
         </div>
         <div class="form-text mt-2">
           <i class="bi bi-info-circle me-1"></i>
           Keep this page open while scanning. The input stays focused so scans register immediately.
         </div>
+
       </div>
     </div>
 
-    <!-- Result area -->
+    <!-- Last scan result -->
     <div id="scan-result"></div>
-
-    <!-- Add for user selector (visible after scan) -->
-    <div id="add-for-user" class="d-none mb-3">
-      <label class="form-label fw-semibold">Add book for:</label>
-      <div class="d-flex flex-wrap gap-2" id="user-selector">
-        {% for user in users %}
-        <button type="button" class="btn btn-outline-secondary user-select-btn
-                {% if user.id == current_user.id %}active{% endif %}"
-                data-user-id="{{ user.id }}" data-user-name="{{ user.display_name }}"
-                style="--user-color: {{ user.color }}">
-          <span class="user-avatar user-avatar-sm me-1" style="background:{{ user.color }}">
-            {% if user.gravatar_url %}
-            <img src="{{ user.gravatar_url }}" alt="" onerror="this.remove()">
-            {% endif %}
-            {{ user.display_name[0].upper() }}
-          </span>
-          {{ user.display_name }}
-        </button>
-        {% endfor %}
-      </div>
-    </div>
   </div>
 </div>
 
@@ -90,7 +119,7 @@
         <div class="mb-3">
           <label class="form-label">Condition</label>
           <select class="form-select" id="manual-condition">
-            <option value="new" selected>New</option>
+            <option value="new">New</option>
             <option value="like_new">Like New</option>
             <option value="very_good">Very Good</option>
             <option value="good">Good</option>
@@ -117,17 +146,6 @@
 {% block scripts %}
 <script>
 const currentUserId = {{ current_user.id }};
-const isAdmin = {{ 'true' if current_user.is_admin else 'false' }};
-
-{% if not current_user.is_admin %}
-// Non-admins can only add for themselves
-const userSelectorDiv = document.getElementById('user-selector');
-if (userSelectorDiv) {
-  userSelectorDiv.querySelectorAll('.user-select-btn').forEach(btn => {
-    if (parseInt(btn.dataset.userId) !== currentUserId) btn.remove();
-  });
-}
-{% endif %}
 </script>
 <script src="{{ url_for('static', filename='js/scanner.js') }}"></script>
 {% endblock %}
