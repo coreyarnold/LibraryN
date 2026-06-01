@@ -23,10 +23,19 @@ class User(UserMixin, db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     user_books = db.relationship('UserBook', back_populates='user', lazy='dynamic', cascade='all, delete-orphan')
+    user_dvds  = db.relationship('UserDVD',  back_populates='user', lazy='dynamic', cascade='all, delete-orphan')
 
     @property
     def book_count(self):
         return self.user_books.count()
+
+    @property
+    def dvd_count(self):
+        return self.user_dvds.count()
+
+    @property
+    def media_count(self):
+        return self.user_books.count() + self.user_dvds.count()
 
     @property
     def gravatar_url(self):
@@ -95,25 +104,90 @@ class UserBook(db.Model):
     }
 
 
+class DVD(db.Model):
+    __tablename__ = 'dvds'
+
+    id = db.Column(db.Integer, primary_key=True)
+    upc = db.Column(db.String(20), unique=True, nullable=False)
+    title = db.Column(db.String(500), nullable=False)
+    director = db.Column(db.String(500))
+    studio = db.Column(db.String(255))
+    year = db.Column(db.String(10))
+    runtime = db.Column(db.Integer)       # minutes
+    rating = db.Column(db.String(20))     # G / PG / PG-13 / R / etc.
+    genre = db.Column(db.String(255))
+    description = db.Column(db.Text)
+    cover_url = db.Column(db.String(1000))
+    format = db.Column(db.String(20))     # DVD / Blu-ray / 4K
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    user_dvds = db.relationship('UserDVD', back_populates='dvd', lazy='dynamic', cascade='all, delete-orphan')
+
+
+class UserDVD(db.Model):
+    __tablename__ = 'user_dvds'
+    __table_args__ = (db.UniqueConstraint('user_id', 'dvd_id', name='uq_user_dvd'),)
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    dvd_id = db.Column(db.Integer, db.ForeignKey('dvds.id'), nullable=False)
+    condition = db.Column(db.String(20), default='good')
+    notes = db.Column(db.Text)
+    location = db.Column(db.String(255))
+    added_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    user = db.relationship('User', back_populates='user_dvds')
+    dvd = db.relationship('DVD', back_populates='user_dvds')
+    loans = db.relationship('DVDLoan', back_populates='user_dvd',
+                            order_by='DVDLoan.loaned_at.desc()',
+                            cascade='all, delete-orphan')
+
+    @property
+    def active_loan(self):
+        return next((l for l in self.loans if l.returned_at is None), None)
+
+    CONDITIONS = ['new', 'like_new', 'very_good', 'good', 'acceptable', 'poor']
+    CONDITION_LABELS = {
+        'new': 'New', 'like_new': 'Like New', 'very_good': 'Very Good',
+        'good': 'Good', 'acceptable': 'Acceptable', 'poor': 'Poor',
+    }
+
+
+class DVDLoan(db.Model):
+    __tablename__ = 'dvd_loans'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_dvd_id = db.Column(db.Integer, db.ForeignKey('user_dvds.id', ondelete='CASCADE'), nullable=False)
+    loaned_to = db.Column(db.String(100), nullable=False)
+    loaned_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    returned_at = db.Column(db.DateTime)
+    notes = db.Column(db.Text)
+
+    user_dvd = db.relationship('UserDVD', back_populates='loans')
+
+
 class ScanLog(db.Model):
     __tablename__ = 'scan_logs'
 
     id = db.Column(db.Integer, primary_key=True)
     scanned_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
-    # Denormalized so records survive user/book deletion
+    # Denormalized so records survive user/book/dvd deletion
     user_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='SET NULL'))
     user_display_name = db.Column(db.String(100))
-    isbn = db.Column(db.String(20))
+    media_type = db.Column(db.String(10), default='book')   # 'book' | 'dvd'
+    isbn = db.Column(db.String(20))                          # UPC for DVDs
     # found_local | found_external | not_found | invalid | error
     lookup_status = db.Column(db.String(20))
     # added | already_owned | error | NULL (lookup failed, no add attempted)
     add_status = db.Column(db.String(20))
     book_id = db.Column(db.Integer, db.ForeignKey('books.id', ondelete='SET NULL'))
-    book_title = db.Column(db.String(500))
+    dvd_id = db.Column(db.Integer, db.ForeignKey('dvds.id', ondelete='SET NULL'))
+    book_title = db.Column(db.String(500))                   # title for either media type
     error_detail = db.Column(db.Text)
 
     user = db.relationship('User', foreign_keys=[user_id])
     book = db.relationship('Book', foreign_keys=[book_id])
+    dvd = db.relationship('DVD', foreign_keys=[dvd_id])
 
 
 class Loan(db.Model):

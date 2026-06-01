@@ -19,10 +19,14 @@ def create_app():
     from .routes.books import books_bp
     from .routes.api import api_bp
     from .routes.users import users_bp
+    from .routes.dvds import dvds_bp
+    from .routes.dvd_api import dvd_api_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(books_bp)
+    app.register_blueprint(dvds_bp)
     app.register_blueprint(api_bp, url_prefix='/api')
+    app.register_blueprint(dvd_api_bp, url_prefix='/api')
     app.register_blueprint(users_bp, url_prefix='/users')
 
     with app.app_context():
@@ -37,9 +41,12 @@ def _migrate():
     """Add columns that don't exist yet (no-op on fresh installs)."""
     from sqlalchemy import inspect as sa_inspect
     inspector = sa_inspect(db.engine)
+    existing_tables = inspector.get_table_names()
 
     user_cols = {col['name'] for col in inspector.get_columns('users')}
-    ub_cols = {col['name'] for col in inspector.get_columns('user_books')}
+    ub_cols   = {col['name'] for col in inspector.get_columns('user_books')}
+    sl_cols   = ({col['name'] for col in inspector.get_columns('scan_logs')}
+                 if 'scan_logs' in existing_tables else set())
 
     with db.engine.connect() as conn:
         if 'email' not in user_cols:
@@ -50,6 +57,11 @@ def _migrate():
             conn.execute(db.text('ALTER TABLE user_books ADD COLUMN reading_status VARCHAR(20)'))
         if 'goodreads_rating' not in ub_cols:
             conn.execute(db.text('ALTER TABLE user_books ADD COLUMN goodreads_rating INTEGER'))
+        # DVD-era additions to scan_logs
+        if sl_cols and 'media_type' not in sl_cols:
+            conn.execute(db.text("ALTER TABLE scan_logs ADD COLUMN media_type VARCHAR(10) DEFAULT 'book'"))
+        if sl_cols and 'dvd_id' not in sl_cols:
+            conn.execute(db.text('ALTER TABLE scan_logs ADD COLUMN dvd_id INTEGER'))
         conn.commit()
 
 

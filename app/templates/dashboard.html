@@ -4,22 +4,27 @@
 {% block content %}
 <div class="d-flex align-items-center justify-content-between mb-4 flex-wrap gap-2">
   <h1 class="h3 fw-bold mb-0"><i class="bi bi-house me-2 text-primary"></i>Dashboard</h1>
-  <a href="{{ url_for('books.scan') }}" class="btn btn-primary">
-    <i class="bi bi-upc-scan me-2"></i>Scan a Book
-  </a>
+  <div class="d-flex gap-2">
+    <a href="{{ url_for('books.scan') }}" class="btn btn-outline-primary">
+      <i class="bi bi-upc-scan me-1"></i>Scan Book
+    </a>
+    <a href="{{ url_for('dvds.scan') }}" class="btn btn-primary">
+      <i class="bi bi-upc-scan me-1"></i>Scan DVD
+    </a>
+  </div>
 </div>
 
 <!-- Stats -->
 <div class="row g-3 mb-4">
   <div class="col-sm-4">
     <div class="stat-card">
-      <div class="stat-number">{{ total_books }}</div>
+      <div class="stat-number">{{ total_copies }}</div>
       <div class="stat-label">Total Copies</div>
     </div>
   </div>
   <div class="col-sm-4">
     <div class="stat-card">
-      <div class="stat-number">{{ unique_books }}</div>
+      <div class="stat-number">{{ unique_titles }}</div>
       <div class="stat-label">Unique Titles</div>
     </div>
   </div>
@@ -49,65 +54,104 @@
         {{ user.display_name[0].upper() }}
       </span>
       {{ user.display_name }}
-      <span class="badge rounded-pill ms-1" style="background:{{ user.color }}">{{ user.book_count }}</span>
+      <span class="badge rounded-pill ms-1" style="background:{{ user.color }}">{{ user.media_count }}</span>
     </a>
     {% endfor %}
   </div>
 </div>
 
-<!-- Book grid -->
-{% if user_books %}
+<!-- Combined media grid -->
+{% if items %}
 <div class="row row-cols-2 row-cols-sm-3 row-cols-md-4 row-cols-lg-5 row-cols-xl-6 g-3">
-  {% for ub in user_books %}
+  {% for type, item in items %}
+  {% if type == 'book' %}
   <div class="col">
-    <a href="{{ url_for('books.detail', book_id=ub.book.id) }}" class="text-decoration-none">
+    <a href="{{ url_for('books.detail', book_id=item.book.id) }}" class="text-decoration-none">
       <div class="book-card h-100">
         <div class="book-cover">
-          {% if ub.book.cover_url %}
-          <img src="{{ ub.book.cover_url }}" alt="{{ ub.book.title }}" loading="lazy" />
+          {% if item.book.cover_url %}
+          <img src="{{ item.book.cover_url }}" alt="{{ item.book.title }}" loading="lazy" />
           {% else %}
-          <div class="book-cover-placeholder">
-            <i class="bi bi-book"></i>
-          </div>
+          <div class="book-cover-placeholder"><i class="bi bi-book"></i></div>
           {% endif %}
-          <div class="book-owner-badge" style="background:{{ ub.user.color }}" title="{{ ub.user.display_name }}">
-            {% if ub.user.gravatar_url %}
-            <img src="{{ ub.user.gravatar_url }}" alt="" onerror="this.remove()">
+          <div class="book-owner-badge" style="background:{{ item.user.color }}" title="{{ item.user.display_name }}">
+            {% if item.user.gravatar_url %}
+            <img src="{{ item.user.gravatar_url }}" alt="" onerror="this.remove()">
             {% endif %}
-            {{ ub.user.display_name[0].upper() }}
+            {{ item.user.display_name[0].upper() }}
           </div>
-          {% if ub.reading_status == 'read' %}
+          {% if item.reading_status == 'read' %}
           <span class="reading-badge-cover reading-read" title="Read"><i class="bi bi-check-circle-fill"></i></span>
-          {% elif ub.reading_status == 'currently-reading' %}
+          {% elif item.reading_status == 'currently-reading' %}
           <span class="reading-badge-cover reading-current" title="Reading"><i class="bi bi-book-fill"></i></span>
-          {% elif ub.reading_status == 'to-read' %}
+          {% elif item.reading_status == 'to-read' %}
           <span class="reading-badge-cover reading-want" title="Want to Read"><i class="bi bi-bookmark-fill"></i></span>
           {% endif %}
         </div>
         <div class="book-info">
-          <div class="book-title">{{ ub.book.title }}</div>
-          <div class="book-author text-muted">{{ ub.book.author or 'Unknown' }}</div>
+          <div class="book-title">{{ item.book.title }}</div>
+          <div class="book-author text-muted">{{ item.book.author or 'Unknown' }}</div>
         </div>
       </div>
     </a>
   </div>
+
+  {% else %}{# dvd #}
+  <div class="col">
+    <a href="{{ url_for('dvds.detail', dvd_id=item.dvd.id) }}" class="text-decoration-none">
+      <div class="book-card h-100">
+        <div class="book-cover">
+          {% if item.dvd.cover_url %}
+          <img src="{{ item.dvd.cover_url }}" alt="{{ item.dvd.title }}" loading="lazy" />
+          {% else %}
+          <div class="book-cover-placeholder"><i class="bi bi-collection-play"></i></div>
+          {% endif %}
+          <div class="book-owner-badge" style="background:{{ item.user.color }}" title="{{ item.user.display_name }}">
+            {% if item.user.gravatar_url %}
+            <img src="{{ item.user.gravatar_url }}" alt="" onerror="this.remove()">
+            {% endif %}
+            {{ item.user.display_name[0].upper() }}
+          </div>
+          {% if item.dvd.format %}
+          <span class="reading-badge-cover" style="background:rgba(0,0,0,.55);color:#fff" title="{{ item.dvd.format }}">
+            {{ item.dvd.format }}
+          </span>
+          {% endif %}
+        </div>
+        <div class="book-info">
+          <div class="book-title">{{ item.dvd.title }}</div>
+          <div class="book-author text-muted">{{ item.dvd.director or 'Unknown' }}</div>
+        </div>
+      </div>
+    </a>
+  </div>
+  {% endif %}
   {% endfor %}
 </div>
+
 {% else %}
 <div class="empty-state">
-  <i class="bi bi-book display-1 text-muted"></i>
-  <h4 class="mt-3 text-muted">No books yet</h4>
-  <p class="text-muted">Start by scanning a book's barcode or adding one manually.</p>
-  <a href="{{ url_for('books.scan') }}" class="btn btn-primary mt-2">
-    <i class="bi bi-upc-scan me-2"></i>Scan a Book
-  </a>
+  <i class="bi bi-collection display-1 text-muted"></i>
+  <h4 class="mt-3 text-muted">Nothing in the library yet</h4>
+  <p class="text-muted">Start by scanning a book or DVD barcode.</p>
+  <div class="d-flex gap-2 justify-content-center mt-2">
+    <a href="{{ url_for('books.scan') }}" class="btn btn-outline-primary">
+      <i class="bi bi-upc-scan me-1"></i>Scan a Book
+    </a>
+    <a href="{{ url_for('dvds.scan') }}" class="btn btn-primary">
+      <i class="bi bi-upc-scan me-1"></i>Scan a DVD
+    </a>
+  </div>
 </div>
 {% endif %}
 
-{% if user_books|length == 60 %}
+{% if items|length == 60 %}
 <div class="text-center mt-4">
-  <a href="{{ url_for('books.index', user_id=filter_user_id) }}" class="btn btn-outline-primary">
+  <a href="{{ url_for('books.index', user_id=filter_user_id) }}" class="btn btn-outline-secondary me-2">
     View All Books <i class="bi bi-arrow-right ms-1"></i>
+  </a>
+  <a href="{{ url_for('dvds.index', user_id=filter_user_id) }}" class="btn btn-outline-secondary">
+    View All DVDs <i class="bi bi-arrow-right ms-1"></i>
   </a>
 </div>
 {% endif %}

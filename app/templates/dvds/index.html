@@ -1,0 +1,139 @@
+{% extends 'base.html' %}
+{% block title %}All DVDs — Family Library{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-4 flex-wrap gap-2">
+  <h1 class="h3 fw-bold mb-0"><i class="bi bi-collection-play me-2 text-primary"></i>All DVDs</h1>
+  <a href="{{ url_for('dvds.scan') }}" class="btn btn-primary">
+    <i class="bi bi-upc-scan me-2"></i>Scan a DVD
+  </a>
+</div>
+
+<form method="get" class="row g-2 mb-4">
+  <div class="col-sm-6 col-md-5">
+    <div class="input-group">
+      <span class="input-group-text"><i class="bi bi-search"></i></span>
+      <input type="text" class="form-control" name="q" value="{{ search }}"
+             placeholder="Search title, director, or UPC…" />
+    </div>
+  </div>
+  <div class="col-sm-4 col-md-3">
+    <select class="form-select" name="user_id">
+      <option value="">All family members</option>
+      {% for user in users %}
+      <option value="{{ user.id }}" {% if filter_user_id == user.id %}selected{% endif %}>
+        {{ user.display_name }}
+      </option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="col-auto">
+    <button type="submit" class="btn btn-outline-primary">Filter</button>
+    {% if search or filter_user_id %}
+    <a href="{{ url_for('dvds.index') }}" class="btn btn-outline-secondary ms-1">Clear</a>
+    {% endif %}
+  </div>
+</form>
+
+{% if pagination.items %}
+<div class="table-responsive">
+  <table class="table table-hover align-middle">
+    <thead class="table-light">
+      <tr>
+        <th style="width:60px"></th>
+        <th>Title</th>
+        <th>Director</th>
+        <th>Year</th>
+        <th>Owner</th>
+        <th>Format</th>
+        <th>Condition</th>
+        <th>Location</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for ud in pagination.items %}
+      <tr class="clickable-row" data-href="{{ url_for('dvds.detail', dvd_id=ud.dvd.id) }}">
+        <td>
+          {% if ud.dvd.cover_url %}
+          <img src="{{ ud.dvd.cover_url }}" alt="" class="book-thumb" />
+          {% else %}
+          <div class="book-thumb-placeholder"><i class="bi bi-collection-play"></i></div>
+          {% endif %}
+        </td>
+        <td>
+          <a href="{{ url_for('dvds.detail', dvd_id=ud.dvd.id) }}"
+             class="fw-semibold text-decoration-none text-dark">{{ ud.dvd.title }}</a>
+          <div class="font-monospace text-muted" style="font-size:.75rem">UPC {{ ud.dvd.upc }}</div>
+        </td>
+        <td class="text-muted">{{ ud.dvd.director or '—' }}</td>
+        <td class="text-muted">{{ ud.dvd.year or '—' }}</td>
+        <td>
+          <span class="badge rounded-pill px-2 py-1 text-white" style="background:{{ ud.user.color }}">
+            {{ ud.user.display_name }}
+          </span>
+        </td>
+        <td class="text-muted small">{{ ud.dvd.format or 'DVD' }}</td>
+        <td>
+          <span class="condition-badge condition-{{ ud.condition }}">
+            {{ ud.CONDITION_LABELS.get(ud.condition, ud.condition) }}
+          </span>
+        </td>
+        <td class="text-muted small">{{ ud.location or '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% if pagination.pages > 1 %}
+<nav class="mt-3">
+  <ul class="pagination justify-content-center">
+    <li class="page-item {% if not pagination.has_prev %}disabled{% endif %}">
+      <a class="page-link" href="{{ url_for('dvds.index', q=search, user_id=filter_user_id, page=pagination.prev_num) }}">
+        <i class="bi bi-chevron-left"></i>
+      </a>
+    </li>
+    {% for p in pagination.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
+      {% if p %}
+      <li class="page-item {% if p == pagination.page %}active{% endif %}">
+        <a class="page-link" href="{{ url_for('dvds.index', q=search, user_id=filter_user_id, page=p) }}">{{ p }}</a>
+      </li>
+      {% else %}
+      <li class="page-item disabled"><span class="page-link">…</span></li>
+      {% endif %}
+    {% endfor %}
+    <li class="page-item {% if not pagination.has_next %}disabled{% endif %}">
+      <a class="page-link" href="{{ url_for('dvds.index', q=search, user_id=filter_user_id, page=pagination.next_num) }}">
+        <i class="bi bi-chevron-right"></i>
+      </a>
+    </li>
+  </ul>
+</nav>
+{% endif %}
+
+{% else %}
+<div class="empty-state">
+  <i class="bi bi-collection-play display-1 text-muted"></i>
+  <h4 class="mt-3 text-muted">No DVDs found</h4>
+  {% if search %}
+  <p class="text-muted">No results for "{{ search }}".</p>
+  <a href="{{ url_for('dvds.index') }}" class="btn btn-outline-secondary mt-2">Clear search</a>
+  {% else %}
+  <a href="{{ url_for('dvds.scan') }}" class="btn btn-primary mt-2">
+    <i class="bi bi-upc-scan me-2"></i>Scan a DVD
+  </a>
+  {% endif %}
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.querySelectorAll('.clickable-row').forEach(row => {
+  row.style.cursor = 'pointer';
+  row.addEventListener('click', e => {
+    if (!e.target.closest('a')) window.location.href = row.dataset.href;
+  });
+});
+</script>
+{% endblock %}
