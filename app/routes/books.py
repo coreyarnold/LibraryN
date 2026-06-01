@@ -1,8 +1,9 @@
+from datetime import datetime
 from flask import Blueprint, render_template, redirect, url_for, request, flash, abort
 from flask_login import login_required, current_user
 from sqlalchemy import or_
 from ..extensions import db
-from ..models import User, Book, UserBook
+from ..models import User, Book, UserBook, Loan
 
 books_bp = Blueprint('books', __name__)
 
@@ -86,7 +87,7 @@ def detail(book_id):
         .order_by(User.display_name)
         .all()
     )
-    return render_template('books/detail.html', book=book, user_books=user_books)
+    return render_template('books/detail.html', book=book, user_books=user_books, now=datetime.utcnow())
 
 
 @books_bp.route('/scan')
@@ -94,6 +95,22 @@ def detail(book_id):
 def scan():
     users = User.query.order_by(User.display_name).all()
     return render_template('books/scan.html', users=users)
+
+
+@books_bp.route('/loans')
+@login_required
+def loans():
+    query = (
+        db.session.query(Loan)
+        .join(UserBook)
+        .join(Book)
+        .join(User)
+        .filter(Loan.returned_at.is_(None))
+        .order_by(Loan.loaned_at)
+    )
+    if not current_user.is_admin:
+        query = query.filter(UserBook.user_id == current_user.id)
+    return render_template('books/loans.html', active_loans=query.all(), now=datetime.utcnow())
 
 
 @books_bp.route('/import')

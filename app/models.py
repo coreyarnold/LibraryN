@@ -71,6 +71,13 @@ class UserBook(db.Model):
 
     user = db.relationship('User', back_populates='user_books')
     book = db.relationship('Book', back_populates='user_books')
+    loans = db.relationship('Loan', back_populates='user_book',
+                            order_by='Loan.loaned_at.desc()',
+                            cascade='all, delete-orphan')
+
+    @property
+    def active_loan(self):
+        return next((l for l in self.loans if l.returned_at is None), None)
 
     CONDITIONS = ['new', 'like_new', 'very_good', 'good', 'acceptable', 'poor']
     CONDITION_LABELS = {
@@ -86,3 +93,16 @@ class UserBook(db.Model):
         'currently-reading': 'Reading',
         'to-read': 'Want to Read',
     }
+
+
+class Loan(db.Model):
+    __tablename__ = 'loans'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_book_id = db.Column(db.Integer, db.ForeignKey('user_books.id', ondelete='CASCADE'), nullable=False)
+    loaned_to = db.Column(db.String(100), nullable=False)
+    loaned_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    returned_at = db.Column(db.DateTime)
+    notes = db.Column(db.Text)
+
+    user_book = db.relationship('UserBook', back_populates='loans')

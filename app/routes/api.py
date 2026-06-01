@@ -5,7 +5,8 @@ from flask import Blueprint, jsonify, request
 from flask_login import login_required, current_user
 from sqlalchemy.exc import IntegrityError
 from ..extensions import db
-from ..models import User, Book, UserBook
+from datetime import datetime
+from ..models import User, Book, UserBook, Loan
 
 api_bp = Blueprint('api', __name__)
 
@@ -236,6 +237,55 @@ def remove_book(user_book_id):
 
     db.session.commit()
     return jsonify({'success': True, 'message': f'"{book_title}" removed.'})
+
+
+@api_bp.route('/loans', methods=['POST'])
+@login_required
+def create_loan():
+    data = request.get_json(force=True)
+    user_book_id = data.get('user_book_id')
+    loaned_to = (data.get('loaned_to') or '').strip()
+
+    if not loaned_to:
+        return jsonify({'error': 'Friend name is required.'}), 400
+
+    user_book = db.session.get(UserBook, user_book_id)
+    if not user_book:
+        return jsonify({'error': 'Not found.'}), 404
+
+    if not current_user.is_admin and user_book.user_id != current_user.id:
+        return jsonify({'error': 'Permission denied.'}), 403
+
+    active = user_book.active_loan
+    if active:
+        return jsonify({'error': f'Already loaned to {active.loaned_to}.'}), 409
+
+    loan = Loan(
+        user_book_id=user_book_id,
+        loaned_to=loaned_to,
+        notes=(data.get('notes') or '').strip(),
+    )
+    db.session.add(loan)
+    db.session.commit()
+    return jsonify({'success': True, 'loan_id': loan.id})
+
+
+@api_bp.route('/loans/<int:loan_id>/return', methods=['PATCH'])
+@login_required
+def return_loan(loan_id):
+    loan = db.session.get(Loan, loan_id)
+    if not loan:
+        return jsonify({'error': 'Not found.'}), 404
+
+    if not current_user.is_admin and loan.user_book.user_id != current_user.id:
+        return jsonify({'error': 'Permission denied.'}), 403
+
+    if loan.returned_at:
+        return jsonify({'error': 'Already returned.'}), 409
+
+    loan.returned_at = datetime.utcnow()
+    db.session.commit()
+    return jsonify({'success': True})
 
 
 def _parse_goodreads_shelf(user_id, shelf):

@@ -35,6 +35,12 @@
           </a>
         </li>
         <li class="nav-item">
+          <a class="nav-link {% if request.endpoint == 'books.loans' %}active{% endif %}"
+             href="{{ url_for('books.loans') }}">
+            <i class="bi bi-arrow-left-right me-1"></i>Loans
+          </a>
+        </li>
+        <li class="nav-item">
           <a class="nav-link {% if request.endpoint == 'books.scan' %}active{% endif %}"
              href="{{ url_for('books.scan') }}">
             <i class="bi bi-upc-scan me-1"></i>Scan
