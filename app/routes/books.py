@@ -3,7 +3,7 @@ from flask import Blueprint, render_template, redirect, url_for, request, flash,
 from flask_login import login_required, current_user
 from sqlalchemy import or_
 from ..extensions import db
-from ..models import User, Book, UserBook, Loan
+from ..models import User, Book, UserBook, Loan, ScanLog
 
 books_bp = Blueprint('books', __name__)
 
@@ -111,6 +111,52 @@ def loans():
     if not current_user.is_admin:
         query = query.filter(UserBook.user_id == current_user.id)
     return render_template('books/loans.html', active_loans=query.all(), now=datetime.utcnow())
+
+
+@books_bp.route('/audit')
+@login_required
+def audit():
+    if not current_user.is_admin:
+        abort(403)
+
+    page        = request.args.get('page', 1, type=int)
+    user_filter = request.args.get('user_id', type=int)
+    status_filter = request.args.get('status', '')
+
+    query = ScanLog.query.order_by(ScanLog.scanned_at.desc())
+    if user_filter:
+        query = query.filter(ScanLog.user_id == user_filter)
+    if status_filter == 'added':
+        query = query.filter(ScanLog.add_status == 'added')
+    elif status_filter == 'already_owned':
+        query = query.filter(ScanLog.add_status == 'already_owned')
+    elif status_filter == 'not_found':
+        query = query.filter(ScanLog.lookup_status == 'not_found')
+    elif status_filter == 'error':
+        query = query.filter(
+            db.or_(ScanLog.lookup_status.in_(['invalid', 'error']),
+                   ScanLog.add_status == 'error')
+        )
+
+    pagination = query.paginate(page=page, per_page=50, error_out=False)
+    users = User.query.order_by(User.display_name).all()
+
+    total      = ScanLog.query.count()
+    added      = ScanLog.query.filter_by(add_status='added').count()
+    not_found  = ScanLog.query.filter_by(lookup_status='not_found').count()
+    errors     = ScanLog.query.filter(
+        db.or_(ScanLog.lookup_status.in_(['invalid', 'error']),
+               ScanLog.add_status == 'error')
+    ).count()
+
+    return render_template(
+        'books/audit.html',
+        pagination=pagination,
+        users=users,
+        user_filter=user_filter,
+        status_filter=status_filter,
+        stats={'total': total, 'added': added, 'not_found': not_found, 'errors': errors},
+    )
 
 
 @books_bp.route('/import')

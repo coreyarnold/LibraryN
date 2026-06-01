@@ -6,7 +6,7 @@ from flask_login import login_required, current_user
 from sqlalchemy.exc import IntegrityError
 from ..extensions import db
 from datetime import datetime
-from ..models import User, Book, UserBook, Loan
+from ..models import User, Book, UserBook, Loan, ScanLog
 
 api_bp = Blueprint('api', __name__)
 
@@ -237,6 +237,25 @@ def remove_book(user_book_id):
 
     db.session.commit()
     return jsonify({'success': True, 'message': f'"{book_title}" removed.'})
+
+
+@api_bp.route('/scan-log', methods=['POST'])
+@login_required
+def create_scan_log():
+    data = request.get_json(force=True)
+    log = ScanLog(
+        user_id=current_user.id,
+        user_display_name=current_user.display_name,
+        isbn=(data.get('isbn') or '')[:20] or None,
+        lookup_status=(data.get('lookup_status') or '')[:20] or None,
+        add_status=(data.get('add_status') or '')[:20] or None,
+        book_id=data.get('book_id') or None,
+        book_title=(data.get('book_title') or '')[:500] or None,
+        error_detail=(data.get('error_detail') or '') or None,
+    )
+    db.session.add(log)
+    db.session.commit()
+    return jsonify({'success': True})
 
 
 @api_bp.route('/loans', methods=['POST'])

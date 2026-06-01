@@ -57,19 +57,26 @@ async function scanAndAdd(isbn) {
     const res  = await fetch(`/api/lookup/${isbn}`);
     const data = await res.json();
     if (!res.ok) {
+      const lstatus = res.status === 400 ? 'invalid' : 'not_found';
+      logScan({ isbn, lookup_status: lstatus, error_detail: data.error });
       showError(data.error || 'Book not found.', isbn);
       isbnInput.focus();
       return;
     }
     bookData = data;
   } catch {
+    logScan({ isbn, lookup_status: 'error', error_detail: 'network_error' });
     showError('Network error — check your connection.', isbn);
     isbnInput.focus();
     return;
   }
 
+  const lookupStatus = bookData.in_library ? 'found_local' : 'found_external';
+
   // Step 2: if the selected user already owns it, skip the add call
   if ((bookData.owners || []).some(o => o.id === selectedUserId)) {
+    logScan({ isbn, lookup_status: lookupStatus, add_status: 'already_owned',
+              book_id: bookData.id, book_title: bookData.title });
     showAlreadyOwned(bookData);
     isbnInput.focus();
     return;
@@ -99,17 +106,33 @@ async function scanAndAdd(isbn) {
     const data = await res.json();
 
     if (data.success) {
+      logScan({ isbn, lookup_status: lookupStatus, add_status: 'added',
+                book_id: data.book_id, book_title: bookData.title });
       showSuccess(bookData, data.book_id);
     } else if (res.status === 409) {
+      logScan({ isbn, lookup_status: lookupStatus, add_status: 'already_owned',
+                book_id: bookData.id, book_title: bookData.title });
       showAlreadyOwned(bookData);
     } else {
+      logScan({ isbn, lookup_status: lookupStatus, add_status: 'error',
+                book_title: bookData.title, error_detail: data.error });
       showError(data.error || 'Failed to add book.', isbn);
     }
   } catch {
+    logScan({ isbn, lookup_status: lookupStatus, add_status: 'error',
+              book_title: bookData.title, error_detail: 'network_error' });
     showError('Network error — check your connection.', isbn);
   }
 
   isbnInput.focus();
+}
+
+function logScan(payload) {
+  fetch('/api/scan-log', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  }).catch(() => {});  // fire-and-forget; never blocks the scan flow
 }
 
 // --- Result display ---
