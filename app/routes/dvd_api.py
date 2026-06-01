@@ -1,3 +1,4 @@
+import logging
 import os
 import re
 import requests
@@ -9,6 +10,7 @@ from ..extensions import db
 from ..models import User, DVD, UserDVD, DVDLoan, ScanLog
 
 dvd_api_bp = Blueprint('dvd_api', __name__)
+log = logging.getLogger(__name__)
 
 UPC_ITEMDB_URL = 'https://api.upcitemdb.com/prod/trial/lookup'
 OMDB_URL       = 'https://www.omdbapi.com/'
@@ -18,9 +20,12 @@ def _lookup_upcitemdb(upc):
     try:
         r = requests.get(UPC_ITEMDB_URL, params={'upc': upc}, timeout=5)
         if r.status_code != 200:
+            log.warning('UPC Item DB returned %s for UPC %s — body: %.500s',
+                        r.status_code, upc, r.text)
             return None
         items = r.json().get('items') or []
         if not items:
+            log.debug('UPC Item DB returned no items for UPC %s', upc)
             return None
         item = items[0]
         images = item.get('images') or []
@@ -37,7 +42,11 @@ def _lookup_upcitemdb(upc):
             'rating':      '',
             'genre':       '',
         }
+    except requests.Timeout:
+        log.warning('UPC Item DB timed out for UPC %s', upc)
+        return None
     except Exception:
+        log.exception('UPC Item DB lookup failed for UPC %s', upc)
         return None
 
 
