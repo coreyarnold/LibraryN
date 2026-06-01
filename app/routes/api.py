@@ -1,3 +1,4 @@
+import logging
 import requests
 import xml.etree.ElementTree as ET
 from io import BytesIO
@@ -9,6 +10,7 @@ from datetime import datetime
 from ..models import User, Book, UserBook, Loan, ScanLog
 
 api_bp = Blueprint('api', __name__)
+log = logging.getLogger(__name__)
 
 GOOGLE_BOOKS_URL = 'https://www.googleapis.com/books/v1/volumes'
 OPEN_LIBRARY_URL = 'https://openlibrary.org/isbn/{isbn}.json'
@@ -21,6 +23,7 @@ def _lookup_google_books(isbn):
         r.raise_for_status()
         data = r.json()
         if data.get('totalItems', 0) == 0:
+            log.debug('Google Books returned no results for ISBN %s', isbn)
             return None
         info = data['items'][0]['volumeInfo']
         return {
@@ -35,7 +38,14 @@ def _lookup_google_books(isbn):
             'genre': ', '.join(info.get('categories', [])),
             'language': info.get('language', ''),
         }
+    except requests.Timeout:
+        log.warning('Google Books timed out for ISBN %s', isbn)
+        return None
+    except requests.HTTPError as e:
+        log.warning('Google Books returned %s for ISBN %s', e.response.status_code, isbn)
+        return None
     except Exception:
+        log.exception('Google Books lookup failed for ISBN %s', isbn)
         return None
 
 
@@ -43,6 +53,8 @@ def _lookup_open_library(isbn):
     try:
         r = requests.get(OPEN_LIBRARY_URL.format(isbn=isbn), timeout=5)
         if r.status_code != 200:
+            log.warning('Open Library returned %s for ISBN %s — body: %.500s',
+                        r.status_code, isbn, r.text)
             return None
         data = r.json()
         authors = []
@@ -52,6 +64,8 @@ def _lookup_open_library(isbn):
                 ar = requests.get(f'https://openlibrary.org{key}.json', timeout=3)
                 if ar.status_code == 200:
                     authors.append(ar.json().get('name', ''))
+                else:
+                    log.debug('Open Library author fetch returned %s for key %s', ar.status_code, key)
         return {
             'isbn': isbn,
             'title': data.get('title', 'Unknown Title'),
@@ -64,7 +78,11 @@ def _lookup_open_library(isbn):
             'genre': '',
             'language': '',
         }
+    except requests.Timeout:
+        log.warning('Open Library timed out for ISBN %s', isbn)
+        return None
     except Exception:
+        log.exception('Open Library lookup failed for ISBN %s', isbn)
         return None
 
 
