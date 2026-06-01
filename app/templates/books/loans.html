@@ -1,0 +1,131 @@
+{% extends 'base.html' %}
+{% block title %}Loans — Family Library{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-4 flex-wrap gap-2">
+  <h1 class="h3 fw-bold mb-0">
+    <i class="bi bi-arrow-left-right me-2 text-primary"></i>Loaned Out
+    {% if active_loans %}
+    <span class="badge bg-primary ms-1" style="font-size:.7rem;vertical-align:middle">{{ active_loans|length }}</span>
+    {% endif %}
+  </h1>
+</div>
+
+{% if active_loans %}
+<div class="d-flex flex-column gap-2">
+  {% for loan in active_loans %}
+  {% set days = (now - loan.loaned_at).days %}
+  <div class="card border-0 shadow-sm loan-row" data-loan-id="{{ loan.id }}">
+    <div class="card-body py-3 px-4">
+      <div class="d-flex align-items-center gap-3">
+
+        <!-- Cover -->
+        <a href="{{ url_for('books.detail', book_id=loan.user_book.book.id) }}" class="flex-shrink-0">
+          {% if loan.user_book.book.cover_url %}
+          <img src="{{ loan.user_book.book.cover_url }}" alt=""
+               style="width:44px;height:64px;object-fit:cover;border-radius:4px;display:block">
+          {% else %}
+          <div style="width:44px;height:64px;background:#e9ecef;border-radius:4px;
+                      display:flex;align-items:center;justify-content:center">
+            <i class="bi bi-book text-muted"></i>
+          </div>
+          {% endif %}
+        </a>
+
+        <!-- Book + loan info -->
+        <div class="flex-grow-1 min-w-0">
+          <a href="{{ url_for('books.detail', book_id=loan.user_book.book.id) }}"
+             class="fw-semibold text-dark text-decoration-none">
+            {{ loan.user_book.book.title }}
+          </a>
+          {% if loan.user_book.book.author %}
+          <div class="text-muted small text-truncate">{{ loan.user_book.book.author }}</div>
+          {% endif %}
+          <div class="d-flex flex-wrap align-items-center gap-x-3 gap-2 mt-1" style="column-gap:.75rem">
+            <span>
+              <i class="bi bi-person me-1 text-muted"></i>
+              <strong>{{ loan.loaned_to }}</strong>
+            </span>
+            <span class="text-muted small">
+              since {{ loan.loaned_at.strftime('%b %-d, %Y') }}
+            </span>
+            <span class="badge rounded-pill text-white" style="background:{{ loan.user_book.user.color }}">
+              {{ loan.user_book.user.display_name }}
+            </span>
+            {% if loan.notes %}
+            <span class="text-muted small fst-italic">{{ loan.notes }}</span>
+            {% endif %}
+          </div>
+        </div>
+
+        <!-- Days out -->
+        <div class="text-center flex-shrink-0 d-none d-sm-block" style="min-width:64px">
+          <div class="fw-bold lh-1"
+               style="font-size:1.75rem;
+                      color:{% if days >= 14 %}#dc3545{% elif days >= 7 %}#fd7e14{% else %}#0d6efd{% endif %}">
+            {{ days }}
+          </div>
+          <div class="text-muted" style="font-size:.7rem;margin-top:.1rem">
+            day{{ 's' if days != 1 }}
+          </div>
+        </div>
+
+        <!-- Return button -->
+        {% if current_user.is_admin or loan.user_book.user_id == current_user.id %}
+        <div class="flex-shrink-0">
+          <button class="btn btn-sm btn-outline-success return-btn"
+                  data-loan-id="{{ loan.id }}"
+                  data-book-title="{{ loan.user_book.book.title }}"
+                  data-loaned-to="{{ loan.loaned_to }}">
+            <i class="bi bi-check-lg me-1"></i>Returned
+          </button>
+        </div>
+        {% endif %}
+
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+{% else %}
+<div class="empty-state">
+  <i class="bi bi-check-circle display-1 text-success"></i>
+  <h4 class="mt-3 text-muted">No books currently loaned out</h4>
+  <p class="text-muted">Open a book's detail page and use "Loan Out" to track a loan.</p>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.querySelectorAll('.return-btn').forEach(btn => {
+  btn.addEventListener('click', async () => {
+    const title    = btn.dataset.bookTitle;
+    const loanedTo = btn.dataset.loanedTo;
+    if (!confirm(`Mark "${title}" as returned from ${loanedTo}?`)) return;
+
+    btn.disabled = true;
+    try {
+      const res  = await fetch(`/api/loans/${btn.dataset.loanId}/return`, { method: 'PATCH' });
+      const data = await res.json();
+      if (data.success) {
+        const row = btn.closest('.loan-row');
+        row.style.transition = 'opacity .2s';
+        row.style.opacity = '0';
+        setTimeout(() => {
+          row.remove();
+          if (!document.querySelector('.loan-row')) location.reload();
+        }, 200);
+      } else {
+        alert(data.error || 'Failed to mark as returned.');
+        btn.disabled = false;
+      }
+    } catch {
+      alert('Network error.');
+      btn.disabled = false;
+    }
+  });
+});
+</script>
+{% endblock %}
