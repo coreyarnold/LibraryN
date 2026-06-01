@@ -95,6 +95,27 @@ class UserBook(db.Model):
     }
 
 
+class ScanLog(db.Model):
+    __tablename__ = 'scan_logs'
+
+    id = db.Column(db.Integer, primary_key=True)
+    scanned_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
+    # Denormalized so records survive user/book deletion
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='SET NULL'))
+    user_display_name = db.Column(db.String(100))
+    isbn = db.Column(db.String(20))
+    # found_local | found_external | not_found | invalid | error
+    lookup_status = db.Column(db.String(20))
+    # added | already_owned | error | NULL (lookup failed, no add attempted)
+    add_status = db.Column(db.String(20))
+    book_id = db.Column(db.Integer, db.ForeignKey('books.id', ondelete='SET NULL'))
+    book_title = db.Column(db.String(500))
+    error_detail = db.Column(db.Text)
+
+    user = db.relationship('User', foreign_keys=[user_id])
+    book = db.relationship('Book', foreign_keys=[book_id])
+
+
 class Loan(db.Model):
     __tablename__ = 'loans'
 
