@@ -61,6 +61,12 @@
             <i class="bi bi-people me-1"></i>Users
           </a>
         </li>
+        <li class="nav-item">
+          <a class="nav-link {% if request.endpoint == 'books.audit' %}active{% endif %}"
+             href="{{ url_for('books.audit') }}">
+            <i class="bi bi-journal-text me-1"></i>Audit
+          </a>
+        </li>
         {% endif %}
         <li class="nav-item dropdown">
           <a class="nav-link dropdown-toggle d-flex align-items-center gap-2" href="#" data-bs-toggle="dropdown">
