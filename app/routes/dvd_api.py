@@ -179,6 +179,12 @@ def add_dvd():
         db.session.add(dvd)
         db.session.flush()
 
+        if dvd.cover_url and not dvd.cover_url.startswith('/covers/'):
+            from ..covers import fetch_and_store
+            local_url = fetch_and_store(dvd.cover_url, upc)
+            if local_url:
+                dvd.cover_url = local_url
+
     if UserDVD.query.filter_by(user_id=user_id, dvd_id=dvd.id).first():
         return jsonify({'error': f'{target.display_name} already owns this DVD.'}), 409
 

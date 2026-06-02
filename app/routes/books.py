@@ -1,5 +1,5 @@
 from datetime import datetime
-from flask import Blueprint, render_template, redirect, url_for, request, flash, abort
+from flask import Blueprint, render_template, redirect, url_for, request, flash, abort, send_from_directory, current_app
 from flask_login import login_required, current_user
 from sqlalchemy import or_
 from ..extensions import db
@@ -170,6 +170,11 @@ def audit():
         status_filter=status_filter,
         stats={'total': total, 'added': added, 'not_found': not_found, 'errors': errors},
     )
+
+
+@books_bp.route('/covers/<path:filename>')
+def serve_cover(filename):
+    return send_from_directory(current_app.config['COVERS_DIR'], filename)
 
 
 @books_bp.route('/import')

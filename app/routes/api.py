@@ -156,6 +156,12 @@ def add_book():
         db.session.add(book)
         db.session.flush()
 
+        if book.cover_url and not book.cover_url.startswith('/covers/'):
+            from ..covers import fetch_and_store
+            local_url = fetch_and_store(book.cover_url, isbn)
+            if local_url:
+                book.cover_url = local_url
+
     existing_ub = UserBook.query.filter_by(user_id=user_id, book_id=book.id).first()
     if existing_ub:
         return jsonify({'error': f'{target_user.display_name} already owns this book.'}), 409

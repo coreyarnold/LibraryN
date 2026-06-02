@@ -14,6 +14,7 @@ services:
       - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-changeme}
       - ADMIN_DISPLAY_NAME=${ADMIN_DISPLAY_NAME:-Admin}
+      - COVERS_DIR=/data/covers
 
 volumes:
   library-data:

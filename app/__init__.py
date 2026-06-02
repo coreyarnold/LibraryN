@@ -1,3 +1,4 @@
+import os
 from flask import Flask
 from .config import Config
 from .extensions import db, login_manager, bcrypt
@@ -28,6 +29,10 @@ def create_app():
     app.register_blueprint(api_bp, url_prefix='/api')
     app.register_blueprint(dvd_api_bp, url_prefix='/api')
     app.register_blueprint(users_bp, url_prefix='/users')
+
+    app.config['COVERS_DIR'] = os.environ.get(
+        'COVERS_DIR', os.path.join(app.instance_path, 'covers')
+    )
 
     with app.app_context():
         db.create_all()
