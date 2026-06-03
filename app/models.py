@@ -23,8 +23,9 @@ class User(UserMixin, db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     user_books = db.relationship('UserBook', back_populates='user', lazy='dynamic', cascade='all, delete-orphan')
-    user_dvds  = db.relationship('UserDVD',  back_populates='user', lazy='dynamic', cascade='all, delete-orphan')
-    borrows    = db.relationship('Borrow',   back_populates='user', order_by='Borrow.borrowed_at', cascade='all, delete-orphan')
+    user_dvds   = db.relationship('UserDVD',          back_populates='user', lazy='dynamic', cascade='all, delete-orphan')
+    user_music  = db.relationship('UserMusicRelease', back_populates='user', lazy='dynamic', cascade='all, delete-orphan')
+    borrows     = db.relationship('Borrow',           back_populates='user', order_by='Borrow.borrowed_at', cascade='all, delete-orphan')
 
     @property
     def book_count(self):
@@ -35,8 +36,12 @@ class User(UserMixin, db.Model):
         return self.user_dvds.count()
 
     @property
+    def music_count(self):
+        return self.user_music.count()
+
+    @property
     def media_count(self):
-        return self.user_books.count() + self.user_dvds.count()
+        return self.user_books.count() + self.user_dvds.count() + self.user_music.count()
 
     @property
     def gravatar_url(self):
@@ -167,6 +172,68 @@ class DVDLoan(db.Model):
     user_dvd = db.relationship('UserDVD', back_populates='loans')
 
 
+class MusicRelease(db.Model):
+    __tablename__ = 'music_releases'
+
+    id          = db.Column(db.Integer, primary_key=True)
+    barcode     = db.Column(db.String(20), unique=True, nullable=False)
+    title       = db.Column(db.String(500), nullable=False)
+    artist      = db.Column(db.String(500))
+    label       = db.Column(db.String(255))
+    year        = db.Column(db.String(10))
+    format      = db.Column(db.String(50))    # CD / LP / EP / Single / etc.
+    track_count = db.Column(db.Integer)
+    genre       = db.Column(db.String(255))
+    cover_url   = db.Column(db.String(1000))
+    mbid        = db.Column(db.String(36))    # MusicBrainz release ID
+    created_at  = db.Column(db.DateTime, default=datetime.utcnow)
+
+    user_music = db.relationship('UserMusicRelease', back_populates='music',
+                                  lazy='dynamic', cascade='all, delete-orphan')
+
+
+class UserMusicRelease(db.Model):
+    __tablename__ = 'user_music'
+    __table_args__ = (db.UniqueConstraint('user_id', 'music_id', name='uq_user_music'),)
+
+    id         = db.Column(db.Integer, primary_key=True)
+    user_id    = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    music_id   = db.Column(db.Integer, db.ForeignKey('music_releases.id'), nullable=False)
+    condition  = db.Column(db.String(20), default='good')
+    notes      = db.Column(db.Text)
+    location   = db.Column(db.String(255))
+    added_at   = db.Column(db.DateTime, default=datetime.utcnow)
+
+    user  = db.relationship('User', back_populates='user_music')
+    music = db.relationship('MusicRelease', back_populates='user_music')
+    loans = db.relationship('MusicLoan', back_populates='user_music',
+                             order_by='MusicLoan.loaned_at.desc()',
+                             cascade='all, delete-orphan')
+
+    @property
+    def active_loan(self):
+        return next((l for l in self.loans if l.returned_at is None), None)
+
+    CONDITIONS = ['new', 'like_new', 'very_good', 'good', 'acceptable', 'poor']
+    CONDITION_LABELS = {
+        'new': 'New', 'like_new': 'Like New', 'very_good': 'Very Good',
+        'good': 'Good', 'acceptable': 'Acceptable', 'poor': 'Poor',
+    }
+
+
+class MusicLoan(db.Model):
+    __tablename__ = 'music_loans'
+
+    id            = db.Column(db.Integer, primary_key=True)
+    user_music_id = db.Column(db.Integer, db.ForeignKey('user_music.id', ondelete='CASCADE'), nullable=False)
+    loaned_to     = db.Column(db.String(100), nullable=False)
+    loaned_at     = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    returned_at   = db.Column(db.DateTime)
+    notes         = db.Column(db.Text)
+
+    user_music = db.relationship('UserMusicRelease', back_populates='loans')
+
+
 class ScanLog(db.Model):
     __tablename__ = 'scan_logs'
 
@@ -175,20 +242,22 @@ class ScanLog(db.Model):
     # Denormalized so records survive user/book/dvd deletion
     user_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='SET NULL'))
     user_display_name = db.Column(db.String(100))
-    media_type = db.Column(db.String(10), default='book')   # 'book' | 'dvd'
-    isbn = db.Column(db.String(20))                          # UPC for DVDs
-    # found_local | found_external | not_found | invalid | error
+    media_type = db.Column(db.String(10), default='book')   # 'book' | 'dvd' | 'music'
+    isbn = db.Column(db.String(20))                          # UPC/barcode for DVDs & music
+    # found_local | found_external | not_found | invalid | error | rate_limited
     lookup_status = db.Column(db.String(20))
     # added | already_owned | error | NULL (lookup failed, no add attempted)
     add_status = db.Column(db.String(20))
-    book_id = db.Column(db.Integer, db.ForeignKey('books.id', ondelete='SET NULL'))
-    dvd_id = db.Column(db.Integer, db.ForeignKey('dvds.id', ondelete='SET NULL'))
-    book_title = db.Column(db.String(500))                   # title for either media type
+    book_id  = db.Column(db.Integer, db.ForeignKey('books.id',          ondelete='SET NULL'))
+    dvd_id   = db.Column(db.Integer, db.ForeignKey('dvds.id',           ondelete='SET NULL'))
+    music_id = db.Column(db.Integer, db.ForeignKey('music_releases.id', ondelete='SET NULL'))
+    book_title = db.Column(db.String(500))                   # title for any media type
     error_detail = db.Column(db.Text)
 
-    user = db.relationship('User', foreign_keys=[user_id])
-    book = db.relationship('Book', foreign_keys=[book_id])
-    dvd = db.relationship('DVD', foreign_keys=[dvd_id])
+    user  = db.relationship('User',         foreign_keys=[user_id])
+    book  = db.relationship('Book',         foreign_keys=[book_id])
+    dvd   = db.relationship('DVD',          foreign_keys=[dvd_id])
+    music = db.relationship('MusicRelease', foreign_keys=[music_id])
 
 
 class ScanRetryQueue(db.Model):

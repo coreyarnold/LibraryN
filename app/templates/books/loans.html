@@ -3,7 +3,7 @@
 {% block title %}Loans — Family Library{% endblock %}
 
 {% block content %}
-{% set loaned_count = book_loans|length + dvd_loans|length %}
+{% set loaned_count = book_loans|length + dvd_loans|length + music_loans|length %}
 
 <!-- ── Loaned Out ─────────────────────────────────────────── -->
 <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
@@ -74,7 +74,7 @@
   {% endfor %}
   {% endif %}
   {% if dvd_loans %}
-  {% if book_loans %}<div class="text-muted small fw-semibold text-uppercase px-1 mt-2"><i class="bi bi-collection-play me-1"></i>DVDs</div>{% endif %}
+  {% if book_loans or music_loans %}<div class="text-muted small fw-semibold text-uppercase px-1 mt-2"><i class="bi bi-collection-play me-1"></i>DVDs</div>{% endif %}
   {% for loan in dvd_loans %}
     {% if current_user.is_admin or loan.user_dvd.user_id == current_user.id %}
     {{ loan_row(loan, loan.user_dvd.dvd.title, loan.user_dvd.dvd.director,
@@ -85,15 +85,27 @@
     {% endif %}
   {% endfor %}
   {% endif %}
+  {% if music_loans %}
+  {% if book_loans or dvd_loans %}<div class="text-muted small fw-semibold text-uppercase px-1 mt-2"><i class="bi bi-music-note me-1"></i>Music</div>{% endif %}
+  {% for loan in music_loans %}
+    {% if current_user.is_admin or loan.user_music.user_id == current_user.id %}
+    {{ loan_row(loan, loan.user_music.music.title, loan.user_music.music.artist,
+        loan.user_music.music.cover_url,
+        url_for('music.detail', music_id=loan.user_music.music.id),
+        loan.user_music.user.color, loan.user_music.user.display_name,
+        '/api/music-loans/' ~ loan.id) }}
+    {% endif %}
+  {% endfor %}
+  {% endif %}
 </div>
 {% else %}
 <p class="text-muted mb-5">Nothing currently loaned out.
-  Open any book or DVD detail page and use "Loan Out" to track one.</p>
+  Open any book, DVD, or music detail page and use "Loan Out" to track one.</p>
 {% endif %}
 
 
 <!-- ── Borrowed ───────────────────────────────────────────── -->
-{% set borrowed_count = borrows|length + inbound_loans|length + inbound_dvd_loans|length %}
+{% set borrowed_count = borrows|length + inbound_loans|length + inbound_dvd_loans|length + inbound_music_loans|length %}
 <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
   <h2 class="h4 fw-bold mb-0">
     <i class="bi bi-arrow-left me-2 text-primary"></i>Borrowed
@@ -178,6 +190,45 @@
           <button class="btn btn-sm btn-outline-success return-btn"
                   data-return-api="/api/dvd-loans/{{ loan.id }}"
                   data-title="{{ loan.user_dvd.dvd.title }}"
+                  data-loaned-to="{{ loan.loaned_to }}">
+            <i class="bi bi-check-lg me-1"></i>Returned
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+
+  {# Music loaned to current user by family members #}
+  {% for loan in inbound_music_loans %}
+  {% set days = (now - loan.loaned_at).days %}
+  <div class="card border-0 shadow-sm loan-row">
+    <div class="card-body py-3 px-4">
+      <div class="d-flex align-items-center gap-3">
+        <a href="{{ url_for('music.detail', music_id=loan.user_music.music.id) }}" class="flex-shrink-0">
+          {% if loan.user_music.music.cover_url %}
+          <img src="{{ loan.user_music.music.cover_url }}" alt="" style="width:44px;height:44px;object-fit:cover;border-radius:4px;display:block">
+          {% else %}
+          <div style="width:44px;height:44px;background:#e9ecef;border-radius:4px;display:flex;align-items:center;justify-content:center"><i class="bi bi-music-note text-muted"></i></div>
+          {% endif %}
+        </a>
+        <div class="flex-grow-1 min-w-0">
+          <a href="{{ url_for('music.detail', music_id=loan.user_music.music.id) }}" class="fw-semibold text-dark text-decoration-none">{{ loan.user_music.music.title }}</a>
+          {% if loan.user_music.music.artist %}<div class="text-muted small text-truncate">{{ loan.user_music.music.artist }}</div>{% endif %}
+          <div class="d-flex flex-wrap align-items-center gap-2 mt-1" style="column-gap:.75rem">
+            <span><i class="bi bi-person me-1 text-muted"></i>from <span class="badge rounded-pill text-white" style="background:{{ loan.user_music.user.color }}">{{ loan.user_music.user.display_name }}</span></span>
+            <span class="text-muted small">since {{ loan.loaned_at.strftime('%b %-d, %Y') }}</span>
+            {% if loan.notes %}<span class="text-muted small fst-italic">{{ loan.notes }}</span>{% endif %}
+          </div>
+        </div>
+        <div class="text-center flex-shrink-0 d-none d-sm-block" style="min-width:64px">
+          <div class="fw-bold lh-1" style="font-size:1.75rem;color:{% if days >= 14 %}#dc3545{% elif days >= 7 %}#fd7e14{% else %}#0d6efd{% endif %}">{{ days }}</div>
+          <div class="text-muted" style="font-size:.7rem;margin-top:.1rem">day{{ 's' if days != 1 }}</div>
+        </div>
+        <div class="flex-shrink-0">
+          <button class="btn btn-sm btn-outline-success return-btn"
+                  data-return-api="/api/music-loans/{{ loan.id }}"
+                  data-title="{{ loan.user_music.music.title }}"
                   data-loaned-to="{{ loan.loaned_to }}">
             <i class="bi bi-check-lg me-1"></i>Returned
           </button>

@@ -22,12 +22,16 @@ def create_app():
     from .routes.users import users_bp
     from .routes.dvds import dvds_bp
     from .routes.dvd_api import dvd_api_bp
+    from .routes.music import music_bp
+    from .routes.music_api import music_api_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(books_bp)
     app.register_blueprint(dvds_bp)
+    app.register_blueprint(music_bp)
     app.register_blueprint(api_bp, url_prefix='/api')
     app.register_blueprint(dvd_api_bp, url_prefix='/api')
+    app.register_blueprint(music_api_bp, url_prefix='/api')
     app.register_blueprint(users_bp, url_prefix='/users')
 
     app.config['COVERS_DIR'] = os.environ.get(
@@ -179,6 +183,9 @@ def _migrate():
             conn.execute(db.text("ALTER TABLE scan_logs ADD COLUMN media_type VARCHAR(10) DEFAULT 'book'"))
         if sl_cols and 'dvd_id' not in sl_cols:
             conn.execute(db.text('ALTER TABLE scan_logs ADD COLUMN dvd_id INTEGER'))
+        # Music-era additions to scan_logs
+        if sl_cols and 'music_id' not in sl_cols:
+            conn.execute(db.text('ALTER TABLE scan_logs ADD COLUMN music_id INTEGER'))
         conn.commit()
 
 

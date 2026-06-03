@@ -41,6 +41,12 @@
           </a>
         </li>
         <li class="nav-item">
+          <a class="nav-link {% if request.endpoint == 'music.index' %}active{% endif %}"
+             href="{{ url_for('music.index') }}">
+            <i class="bi bi-music-note-list me-1"></i>Music
+          </a>
+        </li>
+        <li class="nav-item">
           <a class="nav-link {% if request.endpoint == 'books.loans' %}active{% endif %}"
              href="{{ url_for('books.loans') }}">
             <i class="bi bi-arrow-left-right me-1"></i>Loans
@@ -56,6 +62,12 @@
           <a class="nav-link {% if request.endpoint == 'dvds.scan' %}active{% endif %}"
              href="{{ url_for('dvds.scan') }}">
             <i class="bi bi-upc-scan me-1"></i>DVD Scan
+          </a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link {% if request.endpoint == 'music.scan' %}active{% endif %}"
+             href="{{ url_for('music.scan') }}">
+            <i class="bi bi-upc-scan me-1"></i>Music Scan
           </a>
         </li>
         <li class="nav-item">

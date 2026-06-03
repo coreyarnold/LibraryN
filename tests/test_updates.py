@@ -1,4 +1,7 @@
 """Tests for PATCH /api/books/<id> and PATCH /api/user-books/<id>."""
+import io
+from unittest.mock import MagicMock, patch
+
 from app.extensions import db, bcrypt
 from app.models import User, Book, UserBook
 
@@ -52,6 +55,50 @@ def test_update_book_not_found(logged_in_client):
 def test_update_book_requires_auth(client):
     r = client.patch('/api/books/1', json={'title': 'X'})
     assert r.status_code == 302
+
+
+def test_update_book_new_cover_url_is_downloaded(logged_in_client, app):
+    """Changing the cover URL via edit should download and store it locally."""
+    import tempfile
+    from PIL import Image
+    r = _add_book(logged_in_client)
+    book_id = r.get_json()['book_id']
+
+    buf = io.BytesIO()
+    Image.new('RGB', (100, 150)).save(buf, 'JPEG')
+    img_content = buf.getvalue()
+
+    cover_resp = MagicMock()
+    cover_resp.status_code = 200
+    cover_resp.content = img_content
+
+    with tempfile.TemporaryDirectory() as covers_dir:
+        app.config['COVERS_DIR'] = covers_dir
+        with patch('app.covers.requests.get', return_value=cover_resp):
+            logged_in_client.patch(f'/api/books/{book_id}', json={
+                'title': 'The Great Gatsby',
+                'cover_url': 'https://example.com/new-cover.jpg',
+            })
+
+    with app.app_context():
+        book = db.session.get(Book, book_id)
+        assert book.cover_url.startswith('/covers/')
+
+
+def test_update_book_same_cover_url_not_redownloaded(logged_in_client, app):
+    """Saving the same URL that's already local doesn't re-download."""
+    r = _add_book(logged_in_client)
+    book_id = r.get_json()['book_id']
+    with app.app_context():
+        db.session.get(Book, book_id).cover_url = '/covers/existing.jpg'
+        db.session.commit()
+
+    with patch('app.covers.requests.get') as mock_get:
+        logged_in_client.patch(f'/api/books/{book_id}', json={
+            'title': 'The Great Gatsby',
+            'cover_url': '/covers/existing.jpg',
+        })
+        mock_get.assert_not_called()
 
 
 def test_update_book_clears_page_count_when_empty(logged_in_client, app):
