@@ -3,7 +3,7 @@ from flask import Blueprint, render_template, redirect, url_for, request, flash,
 from flask_login import login_required, current_user
 from sqlalchemy import or_
 from ..extensions import db
-from ..models import User, Book, UserBook, Loan, ScanLog, DVDLoan, UserDVD, DVD, Borrow
+from ..models import User, Book, UserBook, Loan, ScanLog, DVDLoan, UserDVD, DVD, Borrow, MusicRelease, UserMusicRelease, MusicLoan
 
 books_bp = Blueprint('books', __name__)
 
@@ -14,23 +14,26 @@ def dashboard():
     users = User.query.order_by(User.display_name).all()
     filter_user_id = request.args.get('user_id', type=int)
 
-    book_q = db.session.query(UserBook).join(Book).join(User).order_by(UserBook.added_at.desc())
-    dvd_q  = db.session.query(UserDVD).join(DVD).join(User).order_by(UserDVD.added_at.desc())
+    book_q  = db.session.query(UserBook).join(Book).join(User).order_by(UserBook.added_at.desc())
+    dvd_q   = db.session.query(UserDVD).join(DVD).join(User).order_by(UserDVD.added_at.desc())
+    music_q = db.session.query(UserMusicRelease).join(MusicRelease).join(User).order_by(UserMusicRelease.added_at.desc())
 
     if filter_user_id:
-        book_q = book_q.filter(UserBook.user_id == filter_user_id)
-        dvd_q  = dvd_q.filter(UserDVD.user_id  == filter_user_id)
+        book_q  = book_q.filter(UserBook.user_id          == filter_user_id)
+        dvd_q   = dvd_q.filter(UserDVD.user_id            == filter_user_id)
+        music_q = music_q.filter(UserMusicRelease.user_id == filter_user_id)
 
     # Merge and sort most-recent-first, cap at 60
     items = sorted(
-        [('book', ub) for ub in book_q.all()] +
-        [('dvd',  ud) for ud in dvd_q.all()],
+        [('book',  ub) for ub in book_q.all()]  +
+        [('dvd',   ud) for ud in dvd_q.all()]   +
+        [('music', um) for um in music_q.all()],
         key=lambda x: x[1].added_at,
         reverse=True,
     )[:60]
 
-    total_copies  = UserBook.query.count() + UserDVD.query.count()
-    unique_titles = Book.query.count()     + DVD.query.count()
+    total_copies  = UserBook.query.count() + UserDVD.query.count() + UserMusicRelease.query.count()
+    unique_titles = Book.query.count()     + DVD.query.count()     + MusicRelease.query.count()
 
     return render_template(
         'dashboard.html',
@@ -119,9 +122,16 @@ def loans():
         .filter(DVDLoan.returned_at.is_(None))
         .order_by(DVDLoan.loaned_at)
     )
+    music_loan_q = (
+        db.session.query(MusicLoan)
+        .join(UserMusicRelease).join(MusicRelease).join(User)
+        .filter(MusicLoan.returned_at.is_(None))
+        .order_by(MusicLoan.loaned_at)
+    )
     if not current_user.is_admin:
-        book_q = book_q.filter(UserBook.user_id == current_user.id)
-        dvd_q  = dvd_q.filter(UserDVD.user_id  == current_user.id)
+        book_q       = book_q.filter(UserBook.user_id          == current_user.id)
+        dvd_q        = dvd_q.filter(UserDVD.user_id            == current_user.id)
+        music_loan_q = music_loan_q.filter(UserMusicRelease.user_id == current_user.id)
 
     # Manual borrow entries logged by this user
     borrows = (
@@ -153,14 +163,26 @@ def loans():
         .order_by(DVDLoan.loaned_at)
         .all()
     )
+    inbound_music_loans = (
+        db.session.query(MusicLoan)
+        .join(UserMusicRelease).join(MusicRelease).join(User)
+        .filter(
+            MusicLoan.loaned_to == current_user.display_name,
+            MusicLoan.returned_at.is_(None),
+        )
+        .order_by(MusicLoan.loaned_at)
+        .all()
+    )
 
     users = User.query.order_by(User.display_name).all()
     return render_template('books/loans.html',
                            book_loans=book_q.all(),
                            dvd_loans=dvd_q.all(),
+                           music_loans=music_loan_q.all(),
                            borrows=borrows,
                            inbound_loans=inbound_loans,
                            inbound_dvd_loans=inbound_dvd_loans,
+                           inbound_music_loans=inbound_music_loans,
                            users=users,
                            now=datetime.utcnow())
 

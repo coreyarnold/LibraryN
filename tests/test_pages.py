@@ -380,3 +380,139 @@ def test_loans_page_shows_books_and_dvds_together(logged_in_client):
     r = logged_in_client.get('/loans')
     assert r.status_code == 200
     assert b'Fast Five' in r.data
+
+
+# ---------------------------------------------------------------------------
+# Music pages
+# ---------------------------------------------------------------------------
+
+def test_music_index_renders(logged_in_client):
+    r = logged_in_client.get('/music')
+    assert r.status_code == 200
+    assert b'Music' in r.data
+
+
+def test_music_index_requires_auth(client):
+    r = client.get('/music')
+    assert r.status_code == 302
+
+
+def test_music_index_search(logged_in_client):
+    logged_in_client.post('/api/music', json={
+        'barcode': '724356842526', 'title': 'Dark Side of the Moon', 'artist': 'Pink Floyd'
+    })
+    r = logged_in_client.get('/music?q=Pink')
+    assert r.status_code == 200
+    assert b'Dark Side of the Moon' in r.data
+
+
+def test_music_index_empty_state(logged_in_client):
+    r = logged_in_client.get('/music')
+    assert r.status_code == 200
+    assert b'Scan a Release' in r.data
+
+
+def test_music_detail_renders(logged_in_client):
+    r = logged_in_client.post('/api/music', json={
+        'barcode': '724356842526', 'title': 'Dark Side of the Moon',
+        'artist': 'Pink Floyd', 'format': 'LP', 'label': 'Harvest',
+    })
+    music_id = r.get_json()['music_id']
+
+    r = logged_in_client.get(f'/music/{music_id}')
+    assert r.status_code == 200
+    assert b'Dark Side of the Moon' in r.data
+    assert b'Pink Floyd' in r.data
+    assert b'Loan Out' in r.data
+
+
+def test_music_detail_requires_auth(logged_in_client, app):
+    r = logged_in_client.post('/api/music', json={
+        'barcode': '724356842526', 'title': 'Dark Side of the Moon'
+    })
+    music_id = r.get_json()['music_id']
+
+    anon = app.test_client()
+    r = anon.get(f'/music/{music_id}')
+    assert r.status_code == 302
+
+
+def test_music_detail_404_for_missing(logged_in_client):
+    r = logged_in_client.get('/music/99999')
+    assert r.status_code == 404
+
+
+def test_music_scan_page_renders(logged_in_client):
+    r = logged_in_client.get('/music-scan')
+    assert r.status_code == 200
+    assert b'Scan Music' in r.data
+    assert b'barcode-input' in r.data
+
+
+def test_music_scan_page_requires_auth(client):
+    r = client.get('/music-scan')
+    assert r.status_code == 302
+
+
+# ---------------------------------------------------------------------------
+# Dashboard with music
+# ---------------------------------------------------------------------------
+
+def test_dashboard_shows_music(logged_in_client):
+    logged_in_client.post('/api/music', json={
+        'barcode': '724356842526', 'title': 'Dark Side of the Moon', 'artist': 'Pink Floyd'
+    })
+    r = logged_in_client.get('/dashboard')
+    assert r.status_code == 200
+    assert b'Dark Side of the Moon' in r.data
+
+
+def test_dashboard_stats_include_music(logged_in_client):
+    logged_in_client.post('/api/books', json={'isbn': '9780743273565', 'title': 'Book'})
+    logged_in_client.post('/api/dvds',  json={'upc': '025192310638',  'title': 'DVD'})
+    logged_in_client.post('/api/music', json={'barcode': '724356842526', 'title': 'Album'})
+
+    r = logged_in_client.get('/dashboard')
+    assert r.status_code == 200
+    assert b'3' in r.data  # 3 total copies
+
+
+def test_loans_page_shows_music_loans(logged_in_client):
+    r = logged_in_client.post('/api/music', json={
+        'barcode': '724356842526', 'title': 'Dark Side of the Moon'
+    })
+    um_id = r.get_json()['user_music_id']
+    logged_in_client.post('/api/music-loans',
+                          json={'user_music_id': um_id, 'loaned_to': 'Sarah'})
+
+    r = logged_in_client.get('/loans')
+    assert r.status_code == 200
+    assert b'Dark Side of the Moon' in r.data
+    assert b'Sarah' in r.data
+
+
+def test_loans_page_inbound_music_loan_visible(app):
+    """Music loaned to a family member appears in their Borrowed section."""
+    from app.extensions import bcrypt
+    from app.models import User
+    with app.app_context():
+        sarah = User(
+            username='sarah', display_name='Sarah',
+            password_hash=bcrypt.generate_password_hash('pass').decode(),
+            color='#00b894',
+        )
+        db.session.add(sarah)
+        db.session.commit()
+
+    admin_client = app.test_client()
+    admin_client.post('/login', data={'username': 'admin', 'password': 'changeme'})
+    r = admin_client.post('/api/music', json={'barcode': '724356842526', 'title': 'Dark Side'})
+    um_id = r.get_json()['user_music_id']
+    admin_client.post('/api/music-loans',
+                      json={'user_music_id': um_id, 'loaned_to': 'Sarah'})
+
+    sarah_client = app.test_client()
+    sarah_client.post('/login', data={'username': 'sarah', 'password': 'pass'})
+    r = sarah_client.get('/loans')
+    assert r.status_code == 200
+    assert b'Dark Side' in r.data
