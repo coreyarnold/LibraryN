@@ -7,7 +7,7 @@ from flask_login import login_required, current_user
 from sqlalchemy.exc import IntegrityError
 from ..extensions import db
 from datetime import datetime
-from ..models import User, Book, UserBook, Loan, ScanLog
+from ..models import User, Book, UserBook, Loan, ScanLog, Borrow
 
 api_bp = Blueprint('api', __name__)
 log = logging.getLogger(__name__)
@@ -267,6 +267,43 @@ def remove_book(user_book_id):
 
     db.session.commit()
     return jsonify({'success': True, 'message': f'"{book_title}" removed.'})
+
+
+@api_bp.route('/borrows', methods=['POST'])
+@login_required
+def create_borrow():
+    data          = request.get_json(force=True)
+    title         = (data.get('title')         or '').strip()
+    borrowed_from = (data.get('borrowed_from') or '').strip()
+
+    if not title or not borrowed_from:
+        return jsonify({'error': 'Title and borrowed from are required.'}), 400
+
+    borrow = Borrow(
+        user_id=current_user.id,
+        title=title,
+        borrowed_from=borrowed_from,
+        notes=(data.get('notes') or '').strip() or None,
+    )
+    db.session.add(borrow)
+    db.session.commit()
+    return jsonify({'success': True, 'borrow_id': borrow.id})
+
+
+@api_bp.route('/borrows/<int:borrow_id>/return', methods=['PATCH'])
+@login_required
+def return_borrow(borrow_id):
+    borrow = db.session.get(Borrow, borrow_id)
+    if not borrow:
+        return jsonify({'error': 'Not found.'}), 404
+    if not current_user.is_admin and borrow.user_id != current_user.id:
+        return jsonify({'error': 'Permission denied.'}), 403
+    if borrow.returned_at:
+        return jsonify({'error': 'Already returned.'}), 409
+
+    borrow.returned_at = datetime.utcnow()
+    db.session.commit()
+    return jsonify({'success': True})
 
 
 @api_bp.route('/scan-log', methods=['POST'])

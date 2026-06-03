@@ -3,7 +3,7 @@ from flask import Blueprint, render_template, redirect, url_for, request, flash,
 from flask_login import login_required, current_user
 from sqlalchemy import or_
 from ..extensions import db
-from ..models import User, Book, UserBook, Loan, ScanLog, DVDLoan, UserDVD, DVD
+from ..models import User, Book, UserBook, Loan, ScanLog, DVDLoan, UserDVD, DVD, Borrow
 
 books_bp = Blueprint('books', __name__)
 
@@ -120,9 +120,18 @@ def loans():
     if not current_user.is_admin:
         book_q = book_q.filter(UserBook.user_id == current_user.id)
         dvd_q  = dvd_q.filter(UserDVD.user_id  == current_user.id)
+
+    borrows = (
+        Borrow.query
+        .filter_by(user_id=current_user.id, returned_at=None)
+        .order_by(Borrow.borrowed_at)
+        .all()
+    )
+
     return render_template('books/loans.html',
                            book_loans=book_q.all(),
                            dvd_loans=dvd_q.all(),
+                           borrows=borrows,
                            now=datetime.utcnow())
 
 

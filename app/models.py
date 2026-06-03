@@ -24,6 +24,7 @@ class User(UserMixin, db.Model):
 
     user_books = db.relationship('UserBook', back_populates='user', lazy='dynamic', cascade='all, delete-orphan')
     user_dvds  = db.relationship('UserDVD',  back_populates='user', lazy='dynamic', cascade='all, delete-orphan')
+    borrows    = db.relationship('Borrow',   back_populates='user', order_by='Borrow.borrowed_at', cascade='all, delete-orphan')
 
     @property
     def book_count(self):
@@ -188,6 +189,21 @@ class ScanLog(db.Model):
     user = db.relationship('User', foreign_keys=[user_id])
     book = db.relationship('Book', foreign_keys=[book_id])
     dvd = db.relationship('DVD', foreign_keys=[dvd_id])
+
+
+class Borrow(db.Model):
+    """An item a user has borrowed from someone else (not necessarily in the library)."""
+    __tablename__ = 'borrows'
+
+    id            = db.Column(db.Integer, primary_key=True)
+    user_id       = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
+    title         = db.Column(db.String(500), nullable=False)
+    borrowed_from = db.Column(db.String(100), nullable=False)
+    borrowed_at   = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    returned_at   = db.Column(db.DateTime)
+    notes         = db.Column(db.Text)
+
+    user = db.relationship('User', back_populates='borrows')
 
 
 class Loan(db.Model):
