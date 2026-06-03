@@ -191,6 +191,32 @@ class ScanLog(db.Model):
     dvd = db.relationship('DVD', foreign_keys=[dvd_id])
 
 
+class ScanRetryQueue(db.Model):
+    """Scans that were rate-limited and need to be retried server-side."""
+    __tablename__ = 'scan_retry_queue'
+
+    DELAYS = [45, 90, 180]   # seconds before attempt 1, 2, 3
+    MAX_ATTEMPTS = 3
+
+    id                       = db.Column(db.Integer, primary_key=True)
+    created_at               = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    media_type               = db.Column(db.String(10), nullable=False)   # 'book' | 'dvd'
+    identifier               = db.Column(db.String(20), nullable=False)   # ISBN or UPC
+    for_user_id              = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
+    requested_by_id          = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='SET NULL'))
+    requested_by_display_name= db.Column(db.String(100))                  # denormalized
+    condition                = db.Column(db.String(20), default='good')
+    location                 = db.Column(db.String(255), default='')
+    attempt                  = db.Column(db.Integer, default=0, nullable=False)
+    next_retry_at            = db.Column(db.DateTime, nullable=False, index=True)
+    completed_at             = db.Column(db.DateTime)
+    succeeded                = db.Column(db.Boolean)
+    result_message           = db.Column(db.Text)
+
+    for_user      = db.relationship('User', foreign_keys=[for_user_id])
+    requested_by  = db.relationship('User', foreign_keys=[requested_by_id])
+
+
 class Borrow(db.Model):
     """An item a user has borrowed from someone else (not necessarily in the library)."""
     __tablename__ = 'borrows'

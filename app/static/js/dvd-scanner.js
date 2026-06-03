@@ -60,7 +60,12 @@ async function scanAndAdd(upc) {
                     : res.status === 429 ? 'rate_limited'
                     : 'not_found';
       logScan({ upc, lookup_status: lstatus, error_detail: data.error });
-      showError(data.error || 'DVD not found.', upc);
+      if (res.status === 429) {
+        enqueueRetry('dvd', upc);
+        showRateLimited();
+      } else {
+        showError(data.error || 'DVD not found.', upc);
+      }
       upcInput.focus();
       return;
     }
@@ -133,6 +138,36 @@ function logScan(payload) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   }).catch(() => {});
+}
+
+function enqueueRetry(mediaType, identifier) {
+  fetch('/api/retry-queue', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      media_type:  mediaType,
+      identifier:  identifier,
+      for_user_id: selectedUserId,
+      condition:   conditionSelect.value,
+      location:    locationInput.value.trim(),
+    }),
+  }).catch(() => {});
+}
+
+function showRateLimited() {
+  resultDiv.innerHTML = `
+    <div class="card shadow-sm mb-3 border-start border-warning border-3">
+      <div class="card-body py-2 px-3">
+        <div class="d-flex align-items-center gap-2 mb-1">
+          <i class="bi bi-hourglass-split text-warning flex-shrink-0"></i>
+          <span class="fw-semibold text-warning small">Rate limited — queued for retry</span>
+        </div>
+        <p class="text-muted small mb-0">
+          Will retry automatically in 45 s, then 90 s, then 180 s if needed.
+          Check the Audit log for the final result.
+        </p>
+      </div>
+    </div>`;
 }
 
 // --- Result display ---
