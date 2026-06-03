@@ -9,16 +9,16 @@
   </a>
 </div>
 
-<form method="get" class="row g-2 mb-4">
+<form method="get" class="row g-2 mb-4" id="filter-form">
   <div class="col-sm-6 col-md-5">
     <div class="input-group">
       <span class="input-group-text"><i class="bi bi-search"></i></span>
-      <input type="text" class="form-control" name="q" value="{{ search }}"
-             placeholder="Search title, director, or UPC…" />
+      <input type="text" class="form-control" name="q" id="filter-q" value="{{ search }}"
+             placeholder="Search title, director, or UPC…" autocomplete="off" />
     </div>
   </div>
   <div class="col-sm-4 col-md-3">
-    <select class="form-select" name="user_id">
+    <select class="form-select" name="user_id" id="filter-user">
       <option value="">All family members</option>
       {% for user in users %}
       <option value="{{ user.id }}" {% if filter_user_id == user.id %}selected{% endif %}>
@@ -27,12 +27,11 @@
       {% endfor %}
     </select>
   </div>
+  {% if search or filter_user_id %}
   <div class="col-auto">
-    <button type="submit" class="btn btn-outline-primary">Filter</button>
-    {% if search or filter_user_id %}
-    <a href="{{ url_for('dvds.index') }}" class="btn btn-outline-secondary ms-1">Clear</a>
-    {% endif %}
+    <a href="{{ url_for('dvds.index') }}" class="btn btn-outline-secondary">Clear</a>
   </div>
+  {% endif %}
 </form>
 
 {% if pagination.items %}
@@ -135,5 +134,24 @@ document.querySelectorAll('.clickable-row').forEach(row => {
     if (!e.target.closest('a')) window.location.href = row.dataset.href;
   });
 });
+
+(function () {
+  const form    = document.getElementById('filter-form');
+  const search  = document.getElementById('filter-q');
+  const userSel = document.getElementById('filter-user');
+  let timer;
+  // Restore focus and cursor position after page reload
+  if (search.value) {
+    search.focus();
+    const end = search.value.length;
+    search.setSelectionRange(end, end);
+  }
+
+  search.addEventListener('input', () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => form.submit(), 350);
+  });
+  userSel.addEventListener('change', () => form.submit());
+})();
 </script>
 {% endblock %}
