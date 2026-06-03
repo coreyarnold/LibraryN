@@ -42,6 +42,9 @@ def _lookup_google_books(isbn):
         log.warning('Google Books timed out for ISBN %s', isbn)
         return None
     except requests.HTTPError as e:
+        if e.response.status_code == 429:
+            log.warning('Google Books rate limited for ISBN %s', isbn)
+            return 'rate_limited'
         log.warning('Google Books returned %s for ISBN %s', e.response.status_code, isbn)
         return None
     except Exception:
@@ -52,6 +55,9 @@ def _lookup_google_books(isbn):
 def _lookup_open_library(isbn):
     try:
         r = requests.get(OPEN_LIBRARY_URL.format(isbn=isbn), timeout=5)
+        if r.status_code == 429:
+            log.warning('Open Library rate limited for ISBN %s', isbn)
+            return 'rate_limited'
         if r.status_code != 200:
             log.warning('Open Library returned %s for ISBN %s — body: %.500s',
                         r.status_code, isbn, r.text)
@@ -113,7 +119,13 @@ def lookup(isbn):
             'owners': owners,
         })
 
-    book_data = _lookup_google_books(isbn) or _lookup_open_library(isbn)
+    book_data = _lookup_google_books(isbn)
+    if book_data == 'rate_limited':
+        return jsonify({'error': 'Google Books rate limit reached — try again in a moment.'}), 429
+    if not book_data:
+        book_data = _lookup_open_library(isbn)
+    if book_data == 'rate_limited':
+        return jsonify({'error': 'Open Library rate limit reached — try again in a moment.'}), 429
     if not book_data:
         return jsonify({'error': 'Book not found. You can add it manually below.'}), 404
 

@@ -271,11 +271,12 @@ body {
   font-weight: 600;
   white-space: nowrap;
 }
-.audit-added    { background: #d1fae5; color: #065f46; }
-.audit-owned    { background: #e9ecef; color: #495057; }
-.audit-notfound { background: #fff3cd; color: #664d03; }
-.audit-found    { background: #dbeafe; color: #1e40af; }
-.audit-error    { background: #fee2e2; color: #991b1b; }
+.audit-added     { background: #d1fae5; color: #065f46; }
+.audit-owned     { background: #e9ecef; color: #495057; }
+.audit-notfound  { background: #fff3cd; color: #664d03; }
+.audit-found     { background: #dbeafe; color: #1e40af; }
+.audit-ratelimit { background: #ffe5d0; color: #7c3700; }
+.audit-error     { background: #fee2e2; color: #991b1b; }
 
 /* ── Scan result card ── */
 .scan-result-card {

@@ -57,7 +57,9 @@ async function scanAndAdd(isbn) {
     const res  = await fetch(`/api/lookup/${isbn}`);
     const data = await res.json();
     if (!res.ok) {
-      const lstatus = res.status === 400 ? 'invalid' : 'not_found';
+      const lstatus = res.status === 400 ? 'invalid'
+                    : res.status === 429 ? 'rate_limited'
+                    : 'not_found';
       logScan({ isbn, lookup_status: lstatus, error_detail: data.error });
       showError(data.error || 'Book not found.', isbn);
       isbnInput.focus();
