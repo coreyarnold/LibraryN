@@ -38,6 +38,36 @@ def _detect_music_format(formats):
     return formats[0] if formats else ''
 
 
+_DISCOGS_PLACEHOLDERS = ('spacer', 'no-image', 'placeholder', '/images/default')
+
+
+def _fetch_discogs_artwork(release_id, token=''):
+    """
+    Fetch primary cover art from the full Discogs release record.
+    Called when the search result has no usable thumbnail.
+    Returns a direct image URL or empty string.
+    """
+    if not release_id:
+        return ''
+    params = {'token': token} if token else {}
+    try:
+        r = requests.get(
+            f'https://api.discogs.com/releases/{release_id}',
+            params=params, headers=_DISCOGS_HEADERS, timeout=5,
+        )
+        if r.status_code != 200:
+            log.debug('Discogs release detail returned %s for id %s', r.status_code, release_id)
+            return ''
+        images = r.json().get('images') or []
+        # Prefer primary image, fall back to first available
+        img = next((i for i in images if i.get('type') == 'primary'), None) \
+              or (images[0] if images else None)
+        return (img.get('uri') or img.get('uri150') or '') if img else ''
+    except Exception:
+        log.debug('Failed to fetch Discogs artwork for release %s', release_id)
+        return ''
+
+
 def _lookup_discogs(barcode):
     token = os.environ.get('DISCOGS_TOKEN', '')
     params = {'barcode': barcode, 'type': 'release'}
@@ -79,9 +109,13 @@ def _lookup_discogs(barcode):
         genres   = result.get('genre')   or []
         styles   = result.get('style')   or []
 
+        # Use search thumbnail; upgrade to full release artwork if it's a placeholder
         cover_url = result.get('cover_image') or result.get('thumb') or ''
-        if 'spacer' in cover_url or 'no-image' in cover_url:
-            cover_url = ''
+        if not cover_url or any(p in cover_url for p in _DISCOGS_PLACEHOLDERS):
+            release_id = result.get('id')
+            cover_url  = _fetch_discogs_artwork(release_id, token)
+            if cover_url:
+                log.debug('Fetched artwork from release details for barcode %s', barcode)
 
         return {
             'barcode':     barcode,
