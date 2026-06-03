@@ -299,6 +299,59 @@ def test_permanent_failure_writes_scan_log(app):
         assert 'Permanently failed' in (log.error_detail or '')
 
 
+# ---------------------------------------------------------------------------
+# Music retry path
+# ---------------------------------------------------------------------------
+
+def _music_data(**kw):
+    return {
+        'title': 'Dark Side of the Moon', 'artist': 'Pink Floyd',
+        'label': 'Harvest', 'year': '1973', 'format': 'LP',
+        'track_count': 10, 'genre': 'Rock', 'cover_url': '', 'mbid': '',
+        **kw,
+    }
+
+
+def test_music_success_adds_to_library(app):
+    """Retry worker correctly handles media_type='music'."""
+    item_id = _enqueue(app, media_type='music', identifier='724356842526')
+    from app.retry_worker import _tick
+    with patch('app.routes.music_api._lookup_discogs', return_value=_music_data()):
+        _tick(app)
+
+    with app.app_context():
+        from app.models import MusicRelease, UserMusicRelease
+        item = db.session.get(ScanRetryQueue, item_id)
+        assert item.succeeded is True
+        assert item.completed_at is not None
+        assert MusicRelease.query.filter_by(barcode='724356842526').count() == 1
+        assert UserMusicRelease.query.count() == 1
+
+
+def test_music_success_writes_scan_log(app):
+    _enqueue(app, media_type='music', identifier='724356842526')
+    from app.retry_worker import _tick
+    with patch('app.routes.music_api._lookup_discogs', return_value=_music_data()):
+        _tick(app)
+
+    with app.app_context():
+        log = ScanLog.query.order_by(ScanLog.scanned_at.desc()).first()
+        assert log.media_type == 'music'
+        assert log.add_status  == 'added'
+
+
+def test_music_failure_marks_permanently_failed(app):
+    item_id = _enqueue(app, media_type='music', identifier='724356842526', attempt=2)
+    from app.retry_worker import _tick
+    with patch('app.routes.music_api._lookup_discogs', return_value='rate_limited'):
+        _tick(app)
+
+    with app.app_context():
+        item = db.session.get(ScanRetryQueue, item_id)
+        assert item.succeeded is False
+        assert item.completed_at is not None
+
+
 def test_not_found_on_final_attempt_marks_failed(app):
     """If the API returns None (not 429) on the last attempt, also permanently fails."""
     item_id = _enqueue(app, attempt=2)

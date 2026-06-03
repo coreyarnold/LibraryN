@@ -113,6 +113,32 @@ def test_lookup_open_library_429_returns_429(logged_in_client):
     assert r.status_code == 429
 
 
+def test_lookup_google_books_non429_http_error(logged_in_client):
+    """Non-429 HTTP errors from Google Books fall through to Open Library."""
+    import requests as req
+    server_error = MagicMock()
+    server_error.status_code = 503
+    server_error.raise_for_status.side_effect = req.HTTPError(response=server_error)
+
+    ol_404 = MagicMock()
+    ol_404.status_code = 404
+
+    with patch('app.routes.api.requests.get', side_effect=[server_error, ol_404]):
+        r = logged_in_client.get('/api/lookup/9780743273565')
+    assert r.status_code == 404  # both sources failed
+
+
+def test_lookup_google_books_timeout_falls_back(logged_in_client):
+    """Timeout on Google Books falls back to Open Library."""
+    import requests as req
+    ol_404 = MagicMock()
+    ol_404.status_code = 404
+
+    with patch('app.routes.api.requests.get', side_effect=[req.Timeout, ol_404]):
+        r = logged_in_client.get('/api/lookup/9780743273565')
+    assert r.status_code == 404
+
+
 def test_lookup_open_library_success(logged_in_client):
     """Open Library fallback returns book data when Google Books finds nothing."""
     no_results = MagicMock()
@@ -133,6 +159,66 @@ def test_lookup_open_library_success(logged_in_client):
         r = logged_in_client.get('/api/lookup/9780743273565')
     assert r.status_code == 200
     assert r.get_json()['title'] == 'Open Library Book'
+
+
+def test_lookup_open_library_resolves_author(logged_in_client):
+    """Open Library author key is followed to resolve the author name."""
+    no_results = MagicMock()
+    no_results.raise_for_status.return_value = None
+    no_results.json.return_value = {'totalItems': 0}
+
+    ol_book = MagicMock()
+    ol_book.status_code = 200
+    ol_book.json.return_value = {
+        'title': 'A Book With Author',
+        'publishers': [], 'publish_date': '', 'number_of_pages': None,
+        'authors': [{'key': '/authors/OL1A'}],
+    }
+
+    author_resp = MagicMock()
+    author_resp.status_code = 200
+    author_resp.json.return_value = {'name': 'Jane Smith'}
+
+    with patch('app.routes.api.requests.get',
+               side_effect=[no_results, ol_book, author_resp]):
+        r = logged_in_client.get('/api/lookup/9780743273565')
+    assert r.status_code == 200
+    assert r.get_json()['author'] == 'Jane Smith'
+
+
+def test_lookup_open_library_author_fetch_non200_skipped(logged_in_client):
+    """A non-200 author fetch is silently skipped rather than crashing."""
+    no_results = MagicMock()
+    no_results.raise_for_status.return_value = None
+    no_results.json.return_value = {'totalItems': 0}
+
+    ol_book = MagicMock()
+    ol_book.status_code = 200
+    ol_book.json.return_value = {
+        'title': 'A Book', 'publishers': [], 'publish_date': '',
+        'number_of_pages': None, 'authors': [{'key': '/authors/OL1A'}],
+    }
+
+    author_resp = MagicMock()
+    author_resp.status_code = 404
+
+    with patch('app.routes.api.requests.get',
+               side_effect=[no_results, ol_book, author_resp]):
+        r = logged_in_client.get('/api/lookup/9780743273565')
+    assert r.status_code == 200
+    assert r.get_json()['author'] == ''  # gracefully empty
+
+
+def test_lookup_open_library_timeout_returns_404(logged_in_client):
+    """Open Library timeout returns 404 cleanly."""
+    import requests as req
+    no_results = MagicMock()
+    no_results.raise_for_status.return_value = None
+    no_results.json.return_value = {'totalItems': 0}
+
+    with patch('app.routes.api.requests.get', side_effect=[no_results, req.Timeout]):
+        r = logged_in_client.get('/api/lookup/9780743273565')
+    assert r.status_code == 404
 
 
 # ---------------------------------------------------------------------------

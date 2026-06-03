@@ -1,7 +1,183 @@
 from unittest.mock import MagicMock, patch
 
+import pytest
 from app.extensions import db, bcrypt
 from app.models import MusicLoan, MusicRelease, ScanLog, User, UserMusicRelease
+
+
+# ---------------------------------------------------------------------------
+# _detect_music_format  (pure function — no Flask context needed)
+# ---------------------------------------------------------------------------
+
+def test_detect_format_lp():
+    from app.routes.music_api import _detect_music_format
+    assert _detect_music_format(['Vinyl', 'LP', 'Album']) == 'LP'
+
+def test_detect_format_vinyl_ep():
+    from app.routes.music_api import _detect_music_format
+    assert _detect_music_format(['Vinyl', 'EP']) == 'Vinyl EP'
+
+def test_detect_format_vinyl_single():
+    from app.routes.music_api import _detect_music_format
+    assert _detect_music_format(['Vinyl', 'Single']) == 'Vinyl Single'
+
+def test_detect_format_7inch_single():
+    from app.routes.music_api import _detect_music_format
+    assert _detect_music_format(['Vinyl', '7"', 'Single']) == '7" Single'
+
+def test_detect_format_12inch_vinyl():
+    from app.routes.music_api import _detect_music_format
+    assert _detect_music_format(['Vinyl', '12"']) == '12" Vinyl'
+
+def test_detect_format_cd():
+    from app.routes.music_api import _detect_music_format
+    assert _detect_music_format(['CD', 'Album']) == 'CD'
+
+def test_detect_format_cd_ep():
+    from app.routes.music_api import _detect_music_format
+    assert _detect_music_format(['CD', 'EP']) == 'CD EP'
+
+def test_detect_format_cd_single():
+    from app.routes.music_api import _detect_music_format
+    assert _detect_music_format(['CD', 'Single']) == 'CD Single'
+
+def test_detect_format_cassette():
+    from app.routes.music_api import _detect_music_format
+    assert _detect_music_format(['Cassette', 'Album']) == 'Cassette'
+
+def test_detect_format_unknown_returns_first():
+    from app.routes.music_api import _detect_music_format
+    assert _detect_music_format(['Box Set']) == 'Box Set'
+
+def test_detect_format_empty_returns_empty():
+    from app.routes.music_api import _detect_music_format
+    assert _detect_music_format([]) == ''
+
+
+# ---------------------------------------------------------------------------
+# _fetch_discogs_artwork
+# ---------------------------------------------------------------------------
+
+def test_fetch_artwork_returns_primary_uri(app):
+    from app.routes.music_api import _fetch_discogs_artwork
+    resp = MagicMock()
+    resp.status_code = 200
+    resp.json.return_value = {'images': [
+        {'type': 'secondary', 'uri': 'https://example.com/back.jpg', 'uri150': ''},
+        {'type': 'primary',   'uri': 'https://example.com/front.jpg', 'uri150': ''},
+    ]}
+    with app.app_context():
+        with patch('app.routes.music_api.requests.get', return_value=resp):
+            result = _fetch_discogs_artwork(12345)
+    assert result == 'https://example.com/front.jpg'
+
+def test_fetch_artwork_falls_back_to_first_image(app):
+    from app.routes.music_api import _fetch_discogs_artwork
+    resp = MagicMock()
+    resp.status_code = 200
+    resp.json.return_value = {'images': [
+        {'type': 'secondary', 'uri': 'https://example.com/back.jpg', 'uri150': ''},
+    ]}
+    with app.app_context():
+        with patch('app.routes.music_api.requests.get', return_value=resp):
+            result = _fetch_discogs_artwork(12345)
+    assert result == 'https://example.com/back.jpg'
+
+def test_fetch_artwork_non200_returns_empty(app):
+    from app.routes.music_api import _fetch_discogs_artwork
+    resp = MagicMock()
+    resp.status_code = 404
+    with app.app_context():
+        with patch('app.routes.music_api.requests.get', return_value=resp):
+            result = _fetch_discogs_artwork(12345)
+    assert result == ''
+
+def test_fetch_artwork_no_images_returns_empty(app):
+    from app.routes.music_api import _fetch_discogs_artwork
+    resp = MagicMock()
+    resp.status_code = 200
+    resp.json.return_value = {'images': []}
+    with app.app_context():
+        with patch('app.routes.music_api.requests.get', return_value=resp):
+            result = _fetch_discogs_artwork(12345)
+    assert result == ''
+
+def test_fetch_artwork_no_release_id_returns_empty(app):
+    from app.routes.music_api import _fetch_discogs_artwork
+    with app.app_context():
+        result = _fetch_discogs_artwork(None)
+    assert result == ''
+
+def test_fetch_artwork_exception_returns_empty(app):
+    from app.routes.music_api import _fetch_discogs_artwork
+    with app.app_context():
+        with patch('app.routes.music_api.requests.get', side_effect=Exception('boom')):
+            result = _fetch_discogs_artwork(12345)
+    assert result == ''
+
+
+# ---------------------------------------------------------------------------
+# _lookup_discogs edge paths
+# ---------------------------------------------------------------------------
+
+def test_lookup_discogs_401_returns_none(logged_in_client):
+    resp = MagicMock()
+    resp.status_code = 401
+    with patch('app.routes.music_api.requests.get', return_value=resp):
+        r = logged_in_client.get('/api/music/lookup/724356842526')
+    assert r.status_code == 404  # route maps None lookup → 404
+
+def test_lookup_discogs_non200_returns_none(logged_in_client):
+    resp = MagicMock()
+    resp.status_code = 503
+    resp.text = 'Service Unavailable'
+    with patch('app.routes.music_api.requests.get', return_value=resp):
+        r = logged_in_client.get('/api/music/lookup/724356842526')
+    assert r.status_code == 404
+
+def test_lookup_discogs_timeout(logged_in_client):
+    import requests as req
+    with patch('app.routes.music_api.requests.get', side_effect=req.Timeout):
+        r = logged_in_client.get('/api/music/lookup/724356842526')
+    assert r.status_code == 404
+
+def test_lookup_discogs_title_without_dash(logged_in_client):
+    """When title has no ' - ', artist should be empty."""
+    resp = MagicMock()
+    resp.status_code = 200
+    resp.json.return_value = {'results': [{
+        'title': 'Greatest Hits',
+        'year': '1990', 'label': ['EMI'], 'format': ['CD'],
+        'genre': [], 'style': [], 'cover_image': 'https://example.com/c.jpg',
+    }]}
+    with patch('app.routes.music_api.requests.get', return_value=resp):
+        r = logged_in_client.get('/api/music/lookup/724356842526')
+    data = r.get_json()
+    assert r.status_code == 200
+    assert data['title'] == 'Greatest Hits'
+    assert data['artist'] == ''
+
+def test_lookup_discogs_placeholder_cover_fetches_artwork(logged_in_client):
+    """When search result has a placeholder image, we fetch the release details."""
+    search_resp = MagicMock()
+    search_resp.status_code = 200
+    search_resp.json.return_value = {'results': [{
+        'id': 12345,
+        'title': 'Pink Floyd - Animals',
+        'year': '1977', 'label': ['Harvest'], 'format': ['LP'],
+        'genre': [], 'style': [],
+        'cover_image': 'https://i.discogs.com/spacer.gif',
+    }]}
+    artwork_resp = MagicMock()
+    artwork_resp.status_code = 200
+    artwork_resp.json.return_value = {
+        'images': [{'type': 'primary', 'uri': 'https://i.discogs.com/real-cover.jpg', 'uri150': ''}]
+    }
+    with patch('app.routes.music_api.requests.get',
+               side_effect=[search_resp, artwork_resp]):
+        r = logged_in_client.get('/api/music/lookup/724356842526')
+    assert r.status_code == 200
+    assert r.get_json()['cover_url'] == 'https://i.discogs.com/real-cover.jpg'
 
 
 # ---------------------------------------------------------------------------
