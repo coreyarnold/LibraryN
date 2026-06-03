@@ -1,0 +1,27 @@
+{#
+  Renders family-member quick-select buttons above a free-text name input.
+  Parameters:
+    input_id   – the id of the <input> the buttons should populate
+    exclude_id – user.id to omit from the list (usually current_user.id)
+#}
+{% macro user_picker(input_id, exclude_id) %}
+{% set others = users | selectattr('id', 'ne', exclude_id) | list %}
+{% if others %}
+<div class="d-flex flex-wrap gap-1 mb-2 user-pick-row" data-input="{{ input_id }}">
+  {% for user in others %}
+  <button type="button"
+          class="btn btn-sm btn-outline-secondary user-select-btn"
+          data-name="{{ user.display_name }}"
+          style="--user-color: {{ user.color }}">
+    <span class="user-avatar user-avatar-sm me-1" style="background:{{ user.color }}">
+      {% if user.gravatar_url %}
+      <img src="{{ user.gravatar_url }}" alt="" onerror="this.remove()">
+      {% endif %}
+      {{ user.display_name[0].upper() }}
+    </span>
+    {{ user.display_name }}
+  </button>
+  {% endfor %}
+</div>
+{% endif %}
+{% endmacro %}

@@ -363,7 +363,9 @@ def return_loan(loan_id):
     if not loan:
         return jsonify({'error': 'Not found.'}), 404
 
-    if not current_user.is_admin and loan.user_book.user_id != current_user.id:
+    is_lender   = loan.user_book.user_id == current_user.id
+    is_borrower = loan.loaned_to == current_user.display_name
+    if not current_user.is_admin and not is_lender and not is_borrower:
         return jsonify({'error': 'Permission denied.'}), 403
 
     if loan.returned_at:

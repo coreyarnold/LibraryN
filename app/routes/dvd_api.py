@@ -335,7 +335,9 @@ def return_dvd_loan(loan_id):
     loan = db.session.get(DVDLoan, loan_id)
     if not loan:
         return jsonify({'error': 'Not found.'}), 404
-    if not current_user.is_admin and loan.user_dvd.user_id != current_user.id:
+    is_lender   = loan.user_dvd.user_id == current_user.id
+    is_borrower = loan.loaned_to == current_user.display_name
+    if not current_user.is_admin and not is_lender and not is_borrower:
         return jsonify({'error': 'Permission denied.'}), 403
     if loan.returned_at:
         return jsonify({'error': 'Already returned.'}), 409

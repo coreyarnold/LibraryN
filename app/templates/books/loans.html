@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% from '_user_picker.html' import user_picker with context %}
 {% block title %}Loans — Family Library{% endblock %}
 
 {% block content %}
@@ -92,11 +93,12 @@
 
 
 <!-- ── Borrowed ───────────────────────────────────────────── -->
+{% set borrowed_count = borrows|length + inbound_loans|length + inbound_dvd_loans|length %}
 <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
   <h2 class="h4 fw-bold mb-0">
     <i class="bi bi-arrow-left me-2 text-primary"></i>Borrowed
-    {% if borrows %}
-    <span class="badge bg-primary ms-1" style="font-size:.7rem;vertical-align:middle">{{ borrows|length }}</span>
+    {% if borrowed_count %}
+    <span class="badge bg-primary ms-1" style="font-size:.7rem;vertical-align:middle">{{ borrowed_count }}</span>
     {% endif %}
   </h2>
   <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#addBorrowModal">
@@ -104,8 +106,88 @@
   </button>
 </div>
 
-{% if borrows %}
+{% if borrowed_count %}
 <div class="d-flex flex-column gap-2">
+
+  {# Items loaned to current user by family members #}
+  {% for loan in inbound_loans %}
+  {% set days = (now - loan.loaned_at).days %}
+  <div class="card border-0 shadow-sm loan-row">
+    <div class="card-body py-3 px-4">
+      <div class="d-flex align-items-center gap-3">
+        <a href="{{ url_for('books.detail', book_id=loan.user_book.book.id) }}" class="flex-shrink-0">
+          {% if loan.user_book.book.cover_url %}
+          <img src="{{ loan.user_book.book.cover_url }}" alt="" style="width:44px;height:64px;object-fit:cover;border-radius:4px;display:block">
+          {% else %}
+          <div style="width:44px;height:64px;background:#e9ecef;border-radius:4px;display:flex;align-items:center;justify-content:center"><i class="bi bi-book text-muted"></i></div>
+          {% endif %}
+        </a>
+        <div class="flex-grow-1 min-w-0">
+          <a href="{{ url_for('books.detail', book_id=loan.user_book.book.id) }}" class="fw-semibold text-dark text-decoration-none">{{ loan.user_book.book.title }}</a>
+          {% if loan.user_book.book.author %}<div class="text-muted small text-truncate">{{ loan.user_book.book.author }}</div>{% endif %}
+          <div class="d-flex flex-wrap align-items-center gap-2 mt-1" style="column-gap:.75rem">
+            <span><i class="bi bi-person me-1 text-muted"></i>from <span class="badge rounded-pill text-white" style="background:{{ loan.user_book.user.color }}">{{ loan.user_book.user.display_name }}</span></span>
+            <span class="text-muted small">since {{ loan.loaned_at.strftime('%b %-d, %Y') }}</span>
+            {% if loan.notes %}<span class="text-muted small fst-italic">{{ loan.notes }}</span>{% endif %}
+          </div>
+        </div>
+        <div class="text-center flex-shrink-0 d-none d-sm-block" style="min-width:64px">
+          <div class="fw-bold lh-1" style="font-size:1.75rem;color:{% if days >= 14 %}#dc3545{% elif days >= 7 %}#fd7e14{% else %}#0d6efd{% endif %}">{{ days }}</div>
+          <div class="text-muted" style="font-size:.7rem;margin-top:.1rem">day{{ 's' if days != 1 }}</div>
+        </div>
+        <div class="flex-shrink-0">
+          <button class="btn btn-sm btn-outline-success return-btn"
+                  data-return-api="/api/loans/{{ loan.id }}"
+                  data-title="{{ loan.user_book.book.title }}"
+                  data-loaned-to="{{ loan.loaned_to }}">
+            <i class="bi bi-check-lg me-1"></i>Returned
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+
+  {# DVDs loaned to current user by family members #}
+  {% for loan in inbound_dvd_loans %}
+  {% set days = (now - loan.loaned_at).days %}
+  <div class="card border-0 shadow-sm loan-row">
+    <div class="card-body py-3 px-4">
+      <div class="d-flex align-items-center gap-3">
+        <a href="{{ url_for('dvds.detail', dvd_id=loan.user_dvd.dvd.id) }}" class="flex-shrink-0">
+          {% if loan.user_dvd.dvd.cover_url %}
+          <img src="{{ loan.user_dvd.dvd.cover_url }}" alt="" style="width:44px;height:64px;object-fit:cover;border-radius:4px;display:block">
+          {% else %}
+          <div style="width:44px;height:64px;background:#e9ecef;border-radius:4px;display:flex;align-items:center;justify-content:center"><i class="bi bi-collection-play text-muted"></i></div>
+          {% endif %}
+        </a>
+        <div class="flex-grow-1 min-w-0">
+          <a href="{{ url_for('dvds.detail', dvd_id=loan.user_dvd.dvd.id) }}" class="fw-semibold text-dark text-decoration-none">{{ loan.user_dvd.dvd.title }}</a>
+          {% if loan.user_dvd.dvd.director %}<div class="text-muted small text-truncate">{{ loan.user_dvd.dvd.director }}</div>{% endif %}
+          <div class="d-flex flex-wrap align-items-center gap-2 mt-1" style="column-gap:.75rem">
+            <span><i class="bi bi-person me-1 text-muted"></i>from <span class="badge rounded-pill text-white" style="background:{{ loan.user_dvd.user.color }}">{{ loan.user_dvd.user.display_name }}</span></span>
+            <span class="text-muted small">since {{ loan.loaned_at.strftime('%b %-d, %Y') }}</span>
+            {% if loan.notes %}<span class="text-muted small fst-italic">{{ loan.notes }}</span>{% endif %}
+          </div>
+        </div>
+        <div class="text-center flex-shrink-0 d-none d-sm-block" style="min-width:64px">
+          <div class="fw-bold lh-1" style="font-size:1.75rem;color:{% if days >= 14 %}#dc3545{% elif days >= 7 %}#fd7e14{% else %}#0d6efd{% endif %}">{{ days }}</div>
+          <div class="text-muted" style="font-size:.7rem;margin-top:.1rem">day{{ 's' if days != 1 }}</div>
+        </div>
+        <div class="flex-shrink-0">
+          <button class="btn btn-sm btn-outline-success return-btn"
+                  data-return-api="/api/dvd-loans/{{ loan.id }}"
+                  data-title="{{ loan.user_dvd.dvd.title }}"
+                  data-loaned-to="{{ loan.loaned_to }}">
+            <i class="bi bi-check-lg me-1"></i>Returned
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+
+  {# Manually logged borrows (external friends) #}
   {% for borrow in borrows %}
   {% set days = (now - borrow.borrowed_at).days %}
   <div class="card border-0 shadow-sm borrow-row">
@@ -123,10 +205,7 @@
           </div>
         </div>
         <div class="text-center flex-shrink-0 d-none d-sm-block" style="min-width:64px">
-          <div class="fw-bold lh-1"
-               style="font-size:1.75rem;color:{% if days >= 14 %}#dc3545{% elif days >= 7 %}#fd7e14{% else %}#0d6efd{% endif %}">
-            {{ days }}
-          </div>
+          <div class="fw-bold lh-1" style="font-size:1.75rem;color:{% if days >= 14 %}#dc3545{% elif days >= 7 %}#fd7e14{% else %}#0d6efd{% endif %}">{{ days }}</div>
           <div class="text-muted" style="font-size:.7rem;margin-top:.1rem">day{{ 's' if days != 1 }}</div>
         </div>
         <div class="flex-shrink-0">
@@ -141,6 +220,7 @@
     </div>
   </div>
   {% endfor %}
+
 </div>
 {% else %}
 <p class="text-muted">Nothing borrowed right now.
@@ -164,7 +244,9 @@
         </div>
         <div class="mb-3">
           <label class="form-label fw-semibold">Borrowed from <span class="text-danger">*</span></label>
-          <input type="text" class="form-control" id="borrow-from" placeholder="Friend's name" autocomplete="off" />
+          {{ user_picker('borrow-from', current_user.id) }}
+          <input type="text" class="form-control" id="borrow-from"
+                 placeholder="Select above or type a name…" autocomplete="off" />
         </div>
         <div class="mb-0">
           <label class="form-label">Notes <small class="text-muted">(optional)</small></label>

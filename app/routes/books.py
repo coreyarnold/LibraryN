@@ -92,7 +92,9 @@ def detail(book_id):
         .order_by(User.display_name)
         .all()
     )
-    return render_template('books/detail.html', book=book, user_books=user_books, now=datetime.utcnow())
+    users = User.query.order_by(User.display_name).all()
+    return render_template('books/detail.html', book=book, user_books=user_books,
+                           users=users, now=datetime.utcnow())
 
 
 @books_bp.route('/scan')
@@ -121,17 +123,45 @@ def loans():
         book_q = book_q.filter(UserBook.user_id == current_user.id)
         dvd_q  = dvd_q.filter(UserDVD.user_id  == current_user.id)
 
+    # Manual borrow entries logged by this user
     borrows = (
         Borrow.query
-        .filter_by(user_id=current_user.id, returned_at=None)
+        .filter_by(user_id=current_user.id)
+        .filter(Borrow.returned_at.is_(None))
         .order_by(Borrow.borrowed_at)
         .all()
     )
 
+    # Items loaned TO this user by other family members (matched by display name)
+    inbound_loans = (
+        db.session.query(Loan)
+        .join(UserBook).join(Book).join(User)
+        .filter(
+            Loan.loaned_to == current_user.display_name,
+            Loan.returned_at.is_(None),
+        )
+        .order_by(Loan.loaned_at)
+        .all()
+    )
+    inbound_dvd_loans = (
+        db.session.query(DVDLoan)
+        .join(UserDVD).join(DVD).join(User)
+        .filter(
+            DVDLoan.loaned_to == current_user.display_name,
+            DVDLoan.returned_at.is_(None),
+        )
+        .order_by(DVDLoan.loaned_at)
+        .all()
+    )
+
+    users = User.query.order_by(User.display_name).all()
     return render_template('books/loans.html',
                            book_loans=book_q.all(),
                            dvd_loans=dvd_q.all(),
                            borrows=borrows,
+                           inbound_loans=inbound_loans,
+                           inbound_dvd_loans=inbound_dvd_loans,
+                           users=users,
                            now=datetime.utcnow())
 
 

@@ -52,8 +52,9 @@ def detail(dvd_id):
         .order_by(User.display_name)
         .all()
     )
+    users = User.query.order_by(User.display_name).all()
     return render_template('dvds/detail.html', dvd=dvd, user_dvds=user_dvds,
-                           now=datetime.utcnow())
+                           users=users, now=datetime.utcnow())
 
 
 @dvds_bp.route('/dvd-scan')

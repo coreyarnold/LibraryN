@@ -116,6 +116,35 @@
 </main>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+// Wire up every .user-pick-row on the page.
+// Clicking a user button populates the target input; typing clears the selection.
+function initUserPickers(root) {
+  (root || document).querySelectorAll('.user-pick-row').forEach(row => {
+    const input = document.getElementById(row.dataset.input);
+    if (!input) return;
+    row.querySelectorAll('.user-select-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        row.querySelectorAll('.user-select-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        input.value = btn.dataset.name;
+      });
+    });
+    input.addEventListener('input', () => {
+      row.querySelectorAll('.user-select-btn').forEach(b => b.classList.remove('active'));
+    });
+  });
+}
+
+// Re-init whenever a modal opens (pickers may be inside modals)
+document.addEventListener('show.bs.modal', e => {
+  initUserPickers(e.target);
+  // Reset selections each time the modal opens
+  e.target.querySelectorAll('.user-pick-row .user-select-btn').forEach(b => b.classList.remove('active'));
+});
+
+initUserPickers();
+</script>
 {% block scripts %}{% endblock %}
 </body>
 </html>
