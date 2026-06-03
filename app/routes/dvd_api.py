@@ -257,8 +257,14 @@ def update_dvd(dvd_id):
     dvd.rating      = (data.get('rating')      or '').strip()
     dvd.genre       = (data.get('genre')       or '').strip()
     dvd.description = (data.get('description') or '').strip()
-    dvd.cover_url   = (data.get('cover_url')   or '').strip()
     dvd.format      = (data.get('format')      or 'DVD').strip()
+
+    new_cover = (data.get('cover_url') or '').strip()
+    if new_cover and new_cover != dvd.cover_url and not new_cover.startswith('/covers/'):
+        from ..covers import fetch_and_store
+        dvd.cover_url = fetch_and_store(new_cover, dvd.upc) or new_cover
+    else:
+        dvd.cover_url = new_cover
 
     raw_rt = data.get('runtime')
     try:

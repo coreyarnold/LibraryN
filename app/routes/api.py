@@ -207,9 +207,15 @@ def update_book(book_id):
     book.publisher = (data.get('publisher') or '').strip()
     book.published_year = (data.get('published_year') or '').strip()
     book.description = (data.get('description') or '').strip()
-    book.cover_url = (data.get('cover_url') or '').strip()
     book.genre = (data.get('genre') or '').strip()
     book.language = (data.get('language') or '').strip()
+
+    new_cover = (data.get('cover_url') or '').strip()
+    if new_cover and new_cover != book.cover_url and not new_cover.startswith('/covers/'):
+        from ..covers import fetch_and_store
+        book.cover_url = fetch_and_store(new_cover, book.isbn) or new_cover
+    else:
+        book.cover_url = new_cover
 
     raw_pages = data.get('page_count')
     try:

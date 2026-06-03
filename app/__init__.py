@@ -45,7 +45,7 @@ def create_app():
         import time
         from .covers import fetch_and_store
         from .models import DVD
-        from .routes.dvd_api import _lookup_omdb
+        from .routes.dvd_api import _lookup_omdb, _clean_title
 
         if not os.environ.get('OMDB_API_KEY'):
             print('OMDB_API_KEY is not set.')
@@ -66,6 +66,7 @@ def create_app():
         ok = fail = 0
 
         for i, dvd in enumerate(dvds, 1):
+            searched = _clean_title(dvd.title)
             meta = _lookup_omdb(dvd.title)
             if meta:
                 # Only write fields that are currently blank — never overwrite manual edits
@@ -85,7 +86,12 @@ def create_app():
                 fail += 1
                 status = '✗'
 
-            print(f'  [{i:{width}}/{len(dvds)}] {status}  {dvd.title[:60]}')
+            # Always show what was actually sent to OMDb; show original if it was cleaned
+            if searched != dvd.title:
+                title_line = f'"{searched}"  (was: "{dvd.title}")'
+            else:
+                title_line = f'"{searched}"'
+            print(f'  [{i:{width}}/{len(dvds)}] {status}  {title_line}')
 
             if i % 20 == 0:
                 db.session.commit()
