@@ -8,26 +8,21 @@ from app.models import MusicLoan, MusicRelease, ScanLog, User, UserMusicRelease
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _mb_mock(title='Dark Side of the Moon', artist='Pink Floyd'):
-    """Minimal MusicBrainz search response."""
+def _discogs_mock(title='Dark Side of the Moon', artist='Pink Floyd'):
+    """Minimal Discogs search response."""
     resp = MagicMock()
     resp.status_code = 200
     resp.json.return_value = {
-        'releases': [{
-            'id': 'test-mbid-123',
-            'title': title,
-            'date': '1973',
-            'artist-credit': [{'artist': {'name': artist}}],
-            'label-info':    [{'label': {'name': 'Harvest'}}],
-            'media':         [{'format': 'LP', 'track-count': 10}],
+        'results': [{
+            'title':         f'{artist} - {title}',
+            'year':          '1973',
+            'label':         ['Harvest'],
+            'format':        ['Vinyl', 'LP', 'Album'],
+            'genre':         ['Rock'],
+            'style':         ['Psychedelic Rock'],
+            'cover_image':   'https://example.com/cover.jpg',
         }]
     }
-    return resp
-
-
-def _no_cover():
-    resp = MagicMock()
-    resp.status_code = 404
     return resp
 
 
@@ -87,9 +82,8 @@ def test_music_lookup_returns_local_release(logged_in_client, app):
     assert len(data['owners']) == 1
 
 
-def test_music_lookup_calls_musicbrainz(logged_in_client):
-    with patch('app.routes.music_api.requests.get',
-               side_effect=[_mb_mock(), _no_cover()]):
+def test_music_lookup_calls_discogs(logged_in_client):
+    with patch('app.routes.music_api.requests.get', return_value=_discogs_mock()):
         r = logged_in_client.get('/api/music/lookup/724356842526')
     assert r.status_code == 200
     data = r.get_json()
@@ -101,7 +95,7 @@ def test_music_lookup_calls_musicbrainz(logged_in_client):
 def test_music_lookup_returns_404_when_not_found(logged_in_client):
     no_results = MagicMock()
     no_results.status_code = 200
-    no_results.json.return_value = {'releases': []}
+    no_results.json.return_value = {'results': []}
     with patch('app.routes.music_api.requests.get', return_value=no_results):
         r = logged_in_client.get('/api/music/lookup/724356842526')
     assert r.status_code == 404

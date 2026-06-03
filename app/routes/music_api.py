@@ -1,4 +1,5 @@
 import logging
+import os
 import requests
 from datetime import datetime
 from flask import Blueprint, jsonify, request
@@ -10,93 +11,96 @@ from ..models import User, MusicRelease, UserMusicRelease, MusicLoan, ScanLog
 music_api_bp = Blueprint('music_api', __name__)
 log = logging.getLogger(__name__)
 
-MUSICBRAINZ_URL   = 'https://musicbrainz.org/ws/2/release'
-COVER_ART_URL     = 'https://coverartarchive.org/release/{mbid}'
-_MB_HEADERS       = {'User-Agent': 'LibraryN/1.0 (family-library)'}
+DISCOGS_SEARCH_URL = 'https://api.discogs.com/database/search'
+_DISCOGS_HEADERS   = {'User-Agent': 'LibraryN/1.0 (family-library)'}
 
 
 # ---------------------------------------------------------------------------
 # Lookup
 # ---------------------------------------------------------------------------
 
-def _lookup_musicbrainz(barcode):
+def _detect_music_format(formats):
+    """Return the most descriptive format string from a Discogs format list."""
+    upper = [f.upper() for f in formats]
+    if 'VINYL' in upper or 'LP' in upper:
+        size = next((f for f in formats if f in ('7"', '10"', '12"')), '')
+        if 'EP' in upper:
+            return f'{size} Vinyl EP'.strip() if size else 'Vinyl EP'
+        if 'SINGLE' in upper:
+            return f'{size} Single'.strip() if size else 'Vinyl Single'
+        return f'{size} Vinyl'.strip() if size else 'LP'
+    if 'CD' in upper:
+        if 'EP' in upper:     return 'CD EP'
+        if 'SINGLE' in upper: return 'CD Single'
+        return 'CD'
+    if 'CASSETTE' in upper:
+        return 'Cassette'
+    return formats[0] if formats else ''
+
+
+def _lookup_discogs(barcode):
+    token = os.environ.get('DISCOGS_TOKEN', '')
+    params = {'barcode': barcode, 'type': 'release'}
+    if token:
+        params['token'] = token
+    else:
+        log.warning('DISCOGS_TOKEN not set — lookups may be rate-limited or fail')
+
     try:
-        r = requests.get(
-            MUSICBRAINZ_URL,
-            params={'query': f'barcode:{barcode}', 'fmt': 'json'},
-            headers=_MB_HEADERS,
-            timeout=8,
-        )
+        r = requests.get(DISCOGS_SEARCH_URL, params=params,
+                         headers=_DISCOGS_HEADERS, timeout=8)
         if r.status_code == 429:
-            log.warning('MusicBrainz rate limited for barcode %s', barcode)
+            log.warning('Discogs rate limited for barcode %s', barcode)
             return 'rate_limited'
+        if r.status_code == 401:
+            log.warning('Discogs authentication failed — check DISCOGS_TOKEN')
+            return None
         if r.status_code != 200:
-            log.warning('MusicBrainz returned %s for barcode %s — body: %.500s',
+            log.warning('Discogs returned %s for barcode %s — body: %.500s',
                         r.status_code, barcode, r.text)
             return None
 
-        releases = r.json().get('releases') or []
-        if not releases:
-            log.debug('MusicBrainz returned no releases for barcode %s', barcode)
+        results = r.json().get('results') or []
+        if not results:
+            log.debug('Discogs returned no results for barcode %s', barcode)
             return None
 
-        rel = releases[0]
-        mbid = rel.get('id', '')
+        result = results[0]
 
-        # Artist
-        credits = rel.get('artist-credit') or []
-        artist = ''.join(
-            ac.get('artist', {}).get('name', '') if isinstance(ac, dict) else ac
-            for ac in credits
-        ).strip()
+        # Title is "Artist - Album" in Discogs search results
+        raw_title = result.get('title', '')
+        if ' - ' in raw_title:
+            artist, title = raw_title.split(' - ', 1)
+        else:
+            artist, title = '', raw_title
 
-        # Label
-        label_info = rel.get('label-info') or []
-        label = (label_info[0].get('label') or {}).get('name', '') if label_info else ''
+        labels   = result.get('label')   or []
+        formats  = result.get('format')  or []
+        genres   = result.get('genre')   or []
+        styles   = result.get('style')   or []
 
-        # Format & track count from first medium
-        media = rel.get('media') or []
-        fmt, track_count = '', None
-        if media:
-            fmt         = media[0].get('format', '')
-            track_count = media[0].get('track-count')
-
-        cover_url = _fetch_cover_art(mbid)
+        cover_url = result.get('cover_image') or result.get('thumb') or ''
+        if 'spacer' in cover_url or 'no-image' in cover_url:
+            cover_url = ''
 
         return {
             'barcode':     barcode,
-            'title':       rel.get('title', 'Unknown Title'),
-            'artist':      artist,
-            'label':       label,
-            'year':        (rel.get('date') or '')[:4],
-            'format':      fmt,
-            'track_count': track_count,
-            'genre':       '',
+            'title':       title.strip() or 'Unknown Title',
+            'artist':      artist.strip(),
+            'label':       labels[0] if labels else '',
+            'year':        str(result.get('year') or ''),
+            'format':      _detect_music_format(formats),
+            'track_count': None,   # not in search results; available via resource_url
+            'genre':       ', '.join((genres + styles)[:3]),
             'cover_url':   cover_url,
-            'mbid':        mbid,
+            'mbid':        '',
         }
     except requests.Timeout:
-        log.warning('MusicBrainz timed out for barcode %s', barcode)
+        log.warning('Discogs timed out for barcode %s', barcode)
         return None
     except Exception:
-        log.exception('MusicBrainz lookup failed for barcode %s', barcode)
+        log.exception('Discogs lookup failed for barcode %s', barcode)
         return None
-
-
-def _fetch_cover_art(mbid):
-    if not mbid:
-        return ''
-    try:
-        r = requests.get(COVER_ART_URL.format(mbid=mbid),
-                         headers=_MB_HEADERS, timeout=5)
-        if r.status_code == 200:
-            for img in (r.json().get('images') or []):
-                if img.get('front'):
-                    thumbs = img.get('thumbnails') or {}
-                    return thumbs.get('500') or thumbs.get('250') or img.get('image', '')
-    except Exception:
-        pass
-    return ''
 
 
 @music_api_bp.route('/music/lookup/<barcode>')
@@ -127,9 +131,9 @@ def music_lookup(barcode):
             'owners':      owners,
         })
 
-    data = _lookup_musicbrainz(barcode)
+    data = _lookup_discogs(barcode)
     if data == 'rate_limited':
-        return jsonify({'error': 'MusicBrainz rate limit reached — try again in a moment.'}), 429
+        return jsonify({'error': 'Discogs rate limit reached — try again in a moment.'}), 429
     if not data:
         return jsonify({'error': 'Release not found. You can add it manually below.'}), 404
 

@@ -81,7 +81,7 @@ def _lookup(item):
         if result is None:
             result = _lookup_open_library(item.identifier)
         return result
-    else:
+    elif item.media_type == 'dvd':
         from .routes.dvd_api import _lookup_upcitemdb, _lookup_omdb
         result = _lookup_upcitemdb(item.identifier)
         if result and result != 'rate_limited':
@@ -91,6 +91,9 @@ def _lookup(item):
                     if v:
                         result[k] = v
         return result
+    else:  # music
+        from .routes.music_api import _lookup_discogs
+        return _lookup_discogs(item.identifier)
 
 
 def _on_failure(item, data):
@@ -168,7 +171,7 @@ def _on_success(item, data):
             log.info('Retry succeeded: "%s" added for %s after %d attempt(s)',
                      book.title, target.display_name, item.attempt)
 
-        else:
+        elif item.media_type == 'dvd':
             dvd = DVD.query.filter_by(upc=item.identifier).first()
             if not dvd:
                 dvd = DVD(
@@ -206,6 +209,45 @@ def _on_success(item, data):
             log.info('Retry succeeded: "%s" added for %s after %d attempt(s)',
                      dvd.title, target.display_name, item.attempt)
 
+        else:  # music
+            from .models import MusicRelease, UserMusicRelease
+            music = MusicRelease.query.filter_by(barcode=item.identifier).first()
+            if not music:
+                music = MusicRelease(
+                    barcode=item.identifier,
+                    title=data.get('title', ''),
+                    artist=data.get('artist', ''),
+                    label=data.get('label', ''),
+                    year=data.get('year', ''),
+                    format=data.get('format', ''),
+                    track_count=data.get('track_count'),
+                    genre=data.get('genre', ''),
+                    cover_url=data.get('cover_url', ''),
+                    mbid=data.get('mbid', ''),
+                )
+                db.session.add(music)
+                db.session.flush()
+                if music.cover_url and not music.cover_url.startswith('/covers/'):
+                    local = fetch_and_store(music.cover_url, item.identifier)
+                    if local:
+                        music.cover_url = local
+
+            if not UserMusicRelease.query.filter_by(
+                    user_id=item.for_user_id, music_id=music.id).first():
+                db.session.add(UserMusicRelease(
+                    user_id=item.for_user_id, music_id=music.id,
+                    condition=item.condition or 'good', location=item.location or '',
+                ))
+                db.session.flush()
+
+            item.completed_at = datetime.utcnow()
+            item.succeeded = True
+            item.result_message = f'"{music.title}" added after {item.attempt} retry attempt(s)'
+            _write_scan_log(item, 'found_external', 'added', None,
+                            music_id=music.id, title=music.title)
+            log.info('Retry succeeded: "%s" added for %s after %d attempt(s)',
+                     music.title, target.display_name, item.attempt)
+
     except IntegrityError:
         from .extensions import db as _db
         _db.session.rollback()
@@ -215,7 +257,7 @@ def _on_success(item, data):
 
 
 def _write_scan_log(item, lookup_status, add_status, error_detail,
-                    book_id=None, dvd_id=None, title=None):
+                    book_id=None, dvd_id=None, music_id=None, title=None):
     from .extensions import db
     from .models import ScanLog
 
@@ -228,6 +270,7 @@ def _write_scan_log(item, lookup_status, add_status, error_detail,
         add_status=add_status,
         book_id=book_id,
         dvd_id=dvd_id,
+        music_id=music_id,
         book_title=title,
         error_detail=error_detail,
     ))
