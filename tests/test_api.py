@@ -86,6 +86,55 @@ def test_lookup_returns_404_when_external_fails(logged_in_client):
     assert r.status_code == 404
 
 
+def test_lookup_google_books_429_returns_429(logged_in_client):
+    """Google Books rate limit propagates as 429 to the client."""
+    import requests as req
+    rate_limited = MagicMock()
+    rate_limited.status_code = 429
+    rate_limited.raise_for_status.side_effect = req.HTTPError(response=rate_limited)
+
+    with patch('app.routes.api.requests.get', return_value=rate_limited):
+        r = logged_in_client.get('/api/lookup/9780743273565')
+    assert r.status_code == 429
+    assert 'rate limit' in r.get_json()['error'].lower()
+
+
+def test_lookup_open_library_429_returns_429(logged_in_client):
+    """Open Library rate limit (after Google Books miss) propagates as 429."""
+    no_results = MagicMock()
+    no_results.raise_for_status.return_value = None
+    no_results.json.return_value = {'totalItems': 0}
+
+    rate_limited = MagicMock()
+    rate_limited.status_code = 429
+
+    with patch('app.routes.api.requests.get', side_effect=[no_results, rate_limited]):
+        r = logged_in_client.get('/api/lookup/9780743273565')
+    assert r.status_code == 429
+
+
+def test_lookup_open_library_success(logged_in_client):
+    """Open Library fallback returns book data when Google Books finds nothing."""
+    no_results = MagicMock()
+    no_results.raise_for_status.return_value = None
+    no_results.json.return_value = {'totalItems': 0}
+
+    ol_book = MagicMock()
+    ol_book.status_code = 200
+    ol_book.json.return_value = {
+        'title': 'Open Library Book',
+        'publishers': ['OL Press'],
+        'publish_date': '2001',
+        'number_of_pages': 200,
+        'authors': [],
+    }
+
+    with patch('app.routes.api.requests.get', side_effect=[no_results, ol_book]):
+        r = logged_in_client.get('/api/lookup/9780743273565')
+    assert r.status_code == 200
+    assert r.get_json()['title'] == 'Open Library Book'
+
+
 # ---------------------------------------------------------------------------
 # Add book
 # ---------------------------------------------------------------------------
