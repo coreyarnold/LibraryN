@@ -39,6 +39,109 @@ def create_app():
         _migrate()
         _seed_admin()
 
+    @app.cli.command('backfill-dvd-metadata')
+    def backfill_dvd_metadata():
+        """Fill in missing DVD metadata (director, runtime, rating, etc.) via OMDb."""
+        import time
+        from .covers import fetch_and_store
+        from .models import DVD
+        from .routes.dvd_api import _lookup_omdb
+
+        if not os.environ.get('OMDB_API_KEY'):
+            print('OMDB_API_KEY is not set.')
+            print('Get a free key at https://www.omdbapi.com/apikey.aspx')
+            print('Then run:  OMDB_API_KEY=your_key flask backfill-dvd-metadata')
+            return
+
+        dvds = DVD.query.filter(
+            db.or_(DVD.director.is_(None), DVD.director == '')
+        ).all()
+
+        if not dvds:
+            print('All DVDs already have director info.')
+            return
+
+        width = len(str(len(dvds)))
+        print(f'Enriching {len(dvds)} DVD(s) via OMDb…\n')
+        ok = fail = 0
+
+        for i, dvd in enumerate(dvds, 1):
+            meta = _lookup_omdb(dvd.title)
+            if meta:
+                # Only write fields that are currently blank — never overwrite manual edits
+                for field in ('director', 'studio', 'year', 'rating', 'genre', 'description'):
+                    if meta.get(field) and not getattr(dvd, field):
+                        setattr(dvd, field, meta[field])
+                if meta.get('runtime') and not dvd.runtime:
+                    dvd.runtime = meta['runtime']
+                # Upgrade cover: use OMDb's poster if we don't already have a local copy
+                if meta.get('cover_url') and not (dvd.cover_url or '').startswith('/covers/'):
+                    local = fetch_and_store(meta['cover_url'], dvd.upc)
+                    if local:
+                        dvd.cover_url = local
+                ok += 1
+                status = '✓'
+            else:
+                fail += 1
+                status = '✗'
+
+            print(f'  [{i:{width}}/{len(dvds)}] {status}  {dvd.title[:60]}')
+
+            if i % 20 == 0:
+                db.session.commit()
+            time.sleep(0.2)
+
+        db.session.commit()
+        print(f'\nDone: {ok} enriched, {fail} not found on OMDb.')
+
+    @app.cli.command('backfill-covers')
+    def backfill_covers():
+        """Download and store cover images for all books/DVDs that still point to external URLs."""
+        import time
+        from .covers import fetch_and_store
+        from .models import Book, DVD
+
+        books = Book.query.filter(
+            Book.cover_url.isnot(None),
+            Book.cover_url != '',
+            ~Book.cover_url.like('/covers/%'),
+        ).all()
+
+        dvds = DVD.query.filter(
+            DVD.cover_url.isnot(None),
+            DVD.cover_url != '',
+            ~DVD.cover_url.like('/covers/%'),
+        ).all()
+
+        items = [('BOOK', b, b.isbn, b.title) for b in books] + \
+                [('DVD',  d, d.upc,  d.title) for d in dvds]
+
+        if not items:
+            print('Nothing to backfill — all covers are already stored locally.')
+            return
+
+        width = len(str(len(items)))
+        print(f'Backfilling {len(items)} cover image(s)…\n')
+        ok = fail = 0
+
+        for i, (kind, record, identifier, title) in enumerate(items, 1):
+            local = fetch_and_store(record.cover_url, identifier)
+            if local:
+                record.cover_url = local
+                ok += 1
+                status = '✓'
+            else:
+                fail += 1
+                status = '✗'
+            print(f'  [{i:{width}}/{len(items)}] {status} {kind:<4}  {title[:60]}')
+
+            if i % 20 == 0:
+                db.session.commit()
+            time.sleep(0.15)
+
+        db.session.commit()
+        print(f'\nDone: {ok} stored, {fail} failed.')
+
     return app
 
 

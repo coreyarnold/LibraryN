@@ -50,13 +50,23 @@ def _lookup_upcitemdb(upc):
         return None
 
 
+def _clean_title(title):
+    """Strip disc/format/year suffixes that UPC Item DB appends to movie titles."""
+    cleaned = re.sub(r'\s*\[.*?\]', '', title)   # [2 Discs], [Blu-ray/DVD], [2013], …
+    cleaned = re.sub(r'\s*\(.*?\)', '', cleaned)  # (Blu-ray + Digital Copy), (4K), …
+    return cleaned.strip().rstrip(',:;-').strip()
+
+
 def _lookup_omdb(title):
     api_key = os.environ.get('OMDB_API_KEY', '')
     if not api_key or not title:
         return None
+    search_title = _clean_title(title)
+    if not search_title:
+        return None
     try:
         r = requests.get(OMDB_URL,
-                         params={'apikey': api_key, 't': title, 'type': 'movie'},
+                         params={'apikey': api_key, 't': search_title, 'type': 'movie'},
                          timeout=5)
         if r.status_code != 200:
             return None
