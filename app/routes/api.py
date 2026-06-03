@@ -6,8 +6,8 @@ from flask import Blueprint, jsonify, request
 from flask_login import login_required, current_user
 from sqlalchemy.exc import IntegrityError
 from ..extensions import db
-from datetime import datetime
-from ..models import User, Book, UserBook, Loan, ScanLog, Borrow
+from datetime import datetime, timedelta
+from ..models import User, Book, UserBook, Loan, ScanLog, Borrow, ScanRetryQueue
 
 api_bp = Blueprint('api', __name__)
 log = logging.getLogger(__name__)
@@ -42,6 +42,9 @@ def _lookup_google_books(isbn):
         log.warning('Google Books timed out for ISBN %s', isbn)
         return None
     except requests.HTTPError as e:
+        if e.response.status_code == 429:
+            log.warning('Google Books rate limited for ISBN %s', isbn)
+            return 'rate_limited'
         log.warning('Google Books returned %s for ISBN %s', e.response.status_code, isbn)
         return None
     except Exception:
@@ -52,6 +55,9 @@ def _lookup_google_books(isbn):
 def _lookup_open_library(isbn):
     try:
         r = requests.get(OPEN_LIBRARY_URL.format(isbn=isbn), timeout=5)
+        if r.status_code == 429:
+            log.warning('Open Library rate limited for ISBN %s', isbn)
+            return 'rate_limited'
         if r.status_code != 200:
             log.warning('Open Library returned %s for ISBN %s — body: %.500s',
                         r.status_code, isbn, r.text)
@@ -113,7 +119,13 @@ def lookup(isbn):
             'owners': owners,
         })
 
-    book_data = _lookup_google_books(isbn) or _lookup_open_library(isbn)
+    book_data = _lookup_google_books(isbn)
+    if book_data == 'rate_limited':
+        return jsonify({'error': 'Google Books rate limit reached — try again in a moment.'}), 429
+    if not book_data:
+        book_data = _lookup_open_library(isbn)
+    if book_data == 'rate_limited':
+        return jsonify({'error': 'Open Library rate limit reached — try again in a moment.'}), 429
     if not book_data:
         return jsonify({'error': 'Book not found. You can add it manually below.'}), 404
 
@@ -267,6 +279,33 @@ def remove_book(user_book_id):
 
     db.session.commit()
     return jsonify({'success': True, 'message': f'"{book_title}" removed.'})
+
+
+@api_bp.route('/retry-queue', methods=['POST'])
+@login_required
+def enqueue_retry():
+    data       = request.get_json(force=True)
+    media_type = (data.get('media_type') or 'book')
+    identifier = (data.get('identifier') or '').strip()
+    if not identifier:
+        return jsonify({'error': 'Identifier required.'}), 400
+
+    entry = ScanRetryQueue(
+        media_type=media_type,
+        identifier=identifier,
+        for_user_id=data.get('for_user_id') or current_user.id,
+        requested_by_id=current_user.id,
+        requested_by_display_name=current_user.display_name,
+        condition=data.get('condition', 'good'),
+        location=(data.get('location') or '').strip(),
+        attempt=0,
+        next_retry_at=datetime.utcnow() + timedelta(seconds=ScanRetryQueue.DELAYS[0]),
+    )
+    db.session.add(entry)
+    db.session.commit()
+    log.info('Enqueued %s %s for retry (queue id %d)', media_type, identifier, entry.id)
+    return jsonify({'success': True, 'queue_id': entry.id,
+                    'retry_in': ScanRetryQueue.DELAYS[0]})
 
 
 @api_bp.route('/borrows', methods=['POST'])

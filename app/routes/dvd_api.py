@@ -19,6 +19,9 @@ OMDB_URL       = 'https://www.omdbapi.com/'
 def _lookup_upcitemdb(upc):
     try:
         r = requests.get(UPC_ITEMDB_URL, params={'upc': upc}, timeout=5)
+        if r.status_code == 429:
+            log.warning('UPC Item DB rate limited for UPC %s', upc)
+            return 'rate_limited'
         if r.status_code != 200:
             log.warning('UPC Item DB returned %s for UPC %s — body: %.500s',
                         r.status_code, upc, r.text)
@@ -136,6 +139,8 @@ def dvd_lookup(upc):
         })
 
     dvd_data = _lookup_upcitemdb(upc)
+    if dvd_data == 'rate_limited':
+        return jsonify({'error': 'UPC Item DB rate limit reached — try again in a moment.'}), 429
     if dvd_data:
         omdb = _lookup_omdb(dvd_data['title'])
         if omdb:

@@ -186,7 +186,7 @@ def audit():
         query = query.filter(ScanLog.lookup_status == 'not_found')
     elif status_filter == 'error':
         query = query.filter(
-            db.or_(ScanLog.lookup_status.in_(['invalid', 'error']),
+            db.or_(ScanLog.lookup_status.in_(['invalid', 'error', 'rate_limited']),
                    ScanLog.add_status == 'error')
         )
 
@@ -197,7 +197,7 @@ def audit():
     added      = ScanLog.query.filter_by(add_status='added').count()
     not_found  = ScanLog.query.filter_by(lookup_status='not_found').count()
     errors     = ScanLog.query.filter(
-        db.or_(ScanLog.lookup_status.in_(['invalid', 'error']),
+        db.or_(ScanLog.lookup_status.in_(['invalid', 'error', 'rate_limited']),
                ScanLog.add_status == 'error')
     ).count()
 

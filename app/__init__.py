@@ -39,6 +39,9 @@ def create_app():
         _migrate()
         _seed_admin()
 
+    from .retry_worker import start as start_retry_worker
+    start_retry_worker(app)
+
     @app.cli.command('backfill-dvd-metadata')
     def backfill_dvd_metadata():
         """Fill in missing DVD metadata (director, runtime, rating, etc.) via OMDb."""

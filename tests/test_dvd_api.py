@@ -81,6 +81,17 @@ def test_dvd_lookup_calls_external_api(logged_in_client):
     assert data['in_library'] is False
 
 
+def test_dvd_lookup_429_returns_429(logged_in_client):
+    """UPC Item DB rate limit propagates as 429 to the client."""
+    rate_limited = MagicMock()
+    rate_limited.status_code = 429
+    rate_limited.json.return_value = {}
+    with patch('app.routes.dvd_api.requests.get', return_value=rate_limited):
+        r = logged_in_client.get('/api/dvd/lookup/025192310638')
+    assert r.status_code == 429
+    assert 'rate limit' in r.get_json()['error'].lower()
+
+
 def test_dvd_lookup_returns_404_when_not_found(logged_in_client):
     not_found = MagicMock()
     not_found.status_code = 200
