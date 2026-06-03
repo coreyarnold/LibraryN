@@ -1,9 +1,9 @@
 from datetime import datetime
-from flask import Blueprint, render_template, redirect, url_for, request, flash, abort
+from flask import Blueprint, render_template, redirect, url_for, request, flash, abort, send_from_directory, current_app
 from flask_login import login_required, current_user
 from sqlalchemy import or_
 from ..extensions import db
-from ..models import User, Book, UserBook, Loan, ScanLog
+from ..models import User, Book, UserBook, Loan, ScanLog, DVDLoan, UserDVD, DVD, Borrow
 
 books_bp = Blueprint('books', __name__)
 
@@ -14,26 +14,31 @@ def dashboard():
     users = User.query.order_by(User.display_name).all()
     filter_user_id = request.args.get('user_id', type=int)
 
-    query = (
-        db.session.query(UserBook)
-        .join(Book)
-        .join(User)
-        .order_by(UserBook.added_at.desc())
-    )
-    if filter_user_id:
-        query = query.filter(UserBook.user_id == filter_user_id)
+    book_q = db.session.query(UserBook).join(Book).join(User).order_by(UserBook.added_at.desc())
+    dvd_q  = db.session.query(UserDVD).join(DVD).join(User).order_by(UserDVD.added_at.desc())
 
-    user_books = query.limit(60).all()
-    total_books = UserBook.query.count()
-    unique_books = Book.query.count()
+    if filter_user_id:
+        book_q = book_q.filter(UserBook.user_id == filter_user_id)
+        dvd_q  = dvd_q.filter(UserDVD.user_id  == filter_user_id)
+
+    # Merge and sort most-recent-first, cap at 60
+    items = sorted(
+        [('book', ub) for ub in book_q.all()] +
+        [('dvd',  ud) for ud in dvd_q.all()],
+        key=lambda x: x[1].added_at,
+        reverse=True,
+    )[:60]
+
+    total_copies  = UserBook.query.count() + UserDVD.query.count()
+    unique_titles = Book.query.count()     + DVD.query.count()
 
     return render_template(
         'dashboard.html',
         users=users,
-        user_books=user_books,
+        items=items,
         filter_user_id=filter_user_id,
-        total_books=total_books,
-        unique_books=unique_books,
+        total_copies=total_copies,
+        unique_titles=unique_titles,
     )
 
 
@@ -87,7 +92,9 @@ def detail(book_id):
         .order_by(User.display_name)
         .all()
     )
-    return render_template('books/detail.html', book=book, user_books=user_books, now=datetime.utcnow())
+    users = User.query.order_by(User.display_name).all()
+    return render_template('books/detail.html', book=book, user_books=user_books,
+                           users=users, now=datetime.utcnow())
 
 
 @books_bp.route('/scan')
@@ -100,17 +107,62 @@ def scan():
 @books_bp.route('/loans')
 @login_required
 def loans():
-    query = (
+    book_q = (
         db.session.query(Loan)
-        .join(UserBook)
-        .join(Book)
-        .join(User)
+        .join(UserBook).join(Book).join(User)
         .filter(Loan.returned_at.is_(None))
         .order_by(Loan.loaned_at)
     )
+    dvd_q = (
+        db.session.query(DVDLoan)
+        .join(UserDVD).join(DVD).join(User)
+        .filter(DVDLoan.returned_at.is_(None))
+        .order_by(DVDLoan.loaned_at)
+    )
     if not current_user.is_admin:
-        query = query.filter(UserBook.user_id == current_user.id)
-    return render_template('books/loans.html', active_loans=query.all(), now=datetime.utcnow())
+        book_q = book_q.filter(UserBook.user_id == current_user.id)
+        dvd_q  = dvd_q.filter(UserDVD.user_id  == current_user.id)
+
+    # Manual borrow entries logged by this user
+    borrows = (
+        Borrow.query
+        .filter_by(user_id=current_user.id)
+        .filter(Borrow.returned_at.is_(None))
+        .order_by(Borrow.borrowed_at)
+        .all()
+    )
+
+    # Items loaned TO this user by other family members (matched by display name)
+    inbound_loans = (
+        db.session.query(Loan)
+        .join(UserBook).join(Book).join(User)
+        .filter(
+            Loan.loaned_to == current_user.display_name,
+            Loan.returned_at.is_(None),
+        )
+        .order_by(Loan.loaned_at)
+        .all()
+    )
+    inbound_dvd_loans = (
+        db.session.query(DVDLoan)
+        .join(UserDVD).join(DVD).join(User)
+        .filter(
+            DVDLoan.loaned_to == current_user.display_name,
+            DVDLoan.returned_at.is_(None),
+        )
+        .order_by(DVDLoan.loaned_at)
+        .all()
+    )
+
+    users = User.query.order_by(User.display_name).all()
+    return render_template('books/loans.html',
+                           book_loans=book_q.all(),
+                           dvd_loans=dvd_q.all(),
+                           borrows=borrows,
+                           inbound_loans=inbound_loans,
+                           inbound_dvd_loans=inbound_dvd_loans,
+                           users=users,
+                           now=datetime.utcnow())
 
 
 @books_bp.route('/audit')
@@ -157,6 +209,11 @@ def audit():
         status_filter=status_filter,
         stats={'total': total, 'added': added, 'not_found': not_found, 'errors': errors},
     )
+
+
+@books_bp.route('/covers/<path:filename>')
+def serve_cover(filename):
+    return send_from_directory(current_app.config['COVERS_DIR'], filename)
 
 
 @books_bp.route('/import')

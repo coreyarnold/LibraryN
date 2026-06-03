@@ -1,3 +1,4 @@
+import logging
 import requests
 import xml.etree.ElementTree as ET
 from io import BytesIO
@@ -6,9 +7,10 @@ from flask_login import login_required, current_user
 from sqlalchemy.exc import IntegrityError
 from ..extensions import db
 from datetime import datetime
-from ..models import User, Book, UserBook, Loan, ScanLog
+from ..models import User, Book, UserBook, Loan, ScanLog, Borrow
 
 api_bp = Blueprint('api', __name__)
+log = logging.getLogger(__name__)
 
 GOOGLE_BOOKS_URL = 'https://www.googleapis.com/books/v1/volumes'
 OPEN_LIBRARY_URL = 'https://openlibrary.org/isbn/{isbn}.json'
@@ -21,6 +23,7 @@ def _lookup_google_books(isbn):
         r.raise_for_status()
         data = r.json()
         if data.get('totalItems', 0) == 0:
+            log.debug('Google Books returned no results for ISBN %s', isbn)
             return None
         info = data['items'][0]['volumeInfo']
         return {
@@ -35,7 +38,14 @@ def _lookup_google_books(isbn):
             'genre': ', '.join(info.get('categories', [])),
             'language': info.get('language', ''),
         }
+    except requests.Timeout:
+        log.warning('Google Books timed out for ISBN %s', isbn)
+        return None
+    except requests.HTTPError as e:
+        log.warning('Google Books returned %s for ISBN %s', e.response.status_code, isbn)
+        return None
     except Exception:
+        log.exception('Google Books lookup failed for ISBN %s', isbn)
         return None
 
 
@@ -43,6 +53,8 @@ def _lookup_open_library(isbn):
     try:
         r = requests.get(OPEN_LIBRARY_URL.format(isbn=isbn), timeout=5)
         if r.status_code != 200:
+            log.warning('Open Library returned %s for ISBN %s — body: %.500s',
+                        r.status_code, isbn, r.text)
             return None
         data = r.json()
         authors = []
@@ -52,6 +64,8 @@ def _lookup_open_library(isbn):
                 ar = requests.get(f'https://openlibrary.org{key}.json', timeout=3)
                 if ar.status_code == 200:
                     authors.append(ar.json().get('name', ''))
+                else:
+                    log.debug('Open Library author fetch returned %s for key %s', ar.status_code, key)
         return {
             'isbn': isbn,
             'title': data.get('title', 'Unknown Title'),
@@ -64,7 +78,11 @@ def _lookup_open_library(isbn):
             'genre': '',
             'language': '',
         }
+    except requests.Timeout:
+        log.warning('Open Library timed out for ISBN %s', isbn)
+        return None
     except Exception:
+        log.exception('Open Library lookup failed for ISBN %s', isbn)
         return None
 
 
@@ -138,6 +156,12 @@ def add_book():
         db.session.add(book)
         db.session.flush()
 
+        if book.cover_url and not book.cover_url.startswith('/covers/'):
+            from ..covers import fetch_and_store
+            local_url = fetch_and_store(book.cover_url, isbn)
+            if local_url:
+                book.cover_url = local_url
+
     existing_ub = UserBook.query.filter_by(user_id=user_id, book_id=book.id).first()
     if existing_ub:
         return jsonify({'error': f'{target_user.display_name} already owns this book.'}), 409
@@ -183,9 +207,15 @@ def update_book(book_id):
     book.publisher = (data.get('publisher') or '').strip()
     book.published_year = (data.get('published_year') or '').strip()
     book.description = (data.get('description') or '').strip()
-    book.cover_url = (data.get('cover_url') or '').strip()
     book.genre = (data.get('genre') or '').strip()
     book.language = (data.get('language') or '').strip()
+
+    new_cover = (data.get('cover_url') or '').strip()
+    if new_cover and new_cover != book.cover_url and not new_cover.startswith('/covers/'):
+        from ..covers import fetch_and_store
+        book.cover_url = fetch_and_store(new_cover, book.isbn) or new_cover
+    else:
+        book.cover_url = new_cover
 
     raw_pages = data.get('page_count')
     try:
@@ -237,6 +267,43 @@ def remove_book(user_book_id):
 
     db.session.commit()
     return jsonify({'success': True, 'message': f'"{book_title}" removed.'})
+
+
+@api_bp.route('/borrows', methods=['POST'])
+@login_required
+def create_borrow():
+    data          = request.get_json(force=True)
+    title         = (data.get('title')         or '').strip()
+    borrowed_from = (data.get('borrowed_from') or '').strip()
+
+    if not title or not borrowed_from:
+        return jsonify({'error': 'Title and borrowed from are required.'}), 400
+
+    borrow = Borrow(
+        user_id=current_user.id,
+        title=title,
+        borrowed_from=borrowed_from,
+        notes=(data.get('notes') or '').strip() or None,
+    )
+    db.session.add(borrow)
+    db.session.commit()
+    return jsonify({'success': True, 'borrow_id': borrow.id})
+
+
+@api_bp.route('/borrows/<int:borrow_id>/return', methods=['PATCH'])
+@login_required
+def return_borrow(borrow_id):
+    borrow = db.session.get(Borrow, borrow_id)
+    if not borrow:
+        return jsonify({'error': 'Not found.'}), 404
+    if not current_user.is_admin and borrow.user_id != current_user.id:
+        return jsonify({'error': 'Permission denied.'}), 403
+    if borrow.returned_at:
+        return jsonify({'error': 'Already returned.'}), 409
+
+    borrow.returned_at = datetime.utcnow()
+    db.session.commit()
+    return jsonify({'success': True})
 
 
 @api_bp.route('/scan-log', methods=['POST'])
@@ -296,7 +363,9 @@ def return_loan(loan_id):
     if not loan:
         return jsonify({'error': 'Not found.'}), 404
 
-    if not current_user.is_admin and loan.user_book.user_id != current_user.id:
+    is_lender   = loan.user_book.user_id == current_user.id
+    is_borrower = loan.loaned_to == current_user.display_name
+    if not current_user.is_admin and not is_lender and not is_borrower:
         return jsonify({'error': 'Permission denied.'}), 403
 
     if loan.returned_at:

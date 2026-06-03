@@ -1,124 +1,289 @@
 {% extends 'base.html' %}
+{% from '_user_picker.html' import user_picker with context %}
 {% block title %}Loans — Family Library{% endblock %}
 
 {% block content %}
-<div class="d-flex align-items-center justify-content-between mb-4 flex-wrap gap-2">
-  <h1 class="h3 fw-bold mb-0">
-    <i class="bi bi-arrow-left-right me-2 text-primary"></i>Loaned Out
-    {% if active_loans %}
-    <span class="badge bg-primary ms-1" style="font-size:.7rem;vertical-align:middle">{{ active_loans|length }}</span>
+{% set loaned_count = book_loans|length + dvd_loans|length %}
+
+<!-- ── Loaned Out ─────────────────────────────────────────── -->
+<div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+  <h2 class="h4 fw-bold mb-0">
+    <i class="bi bi-arrow-right me-2 text-primary"></i>Loaned Out
+    {% if loaned_count %}
+    <span class="badge bg-primary ms-1" style="font-size:.7rem;vertical-align:middle">{{ loaned_count }}</span>
     {% endif %}
-  </h1>
+  </h2>
 </div>
 
-{% if active_loans %}
+{% macro loan_row(loan, title, subtitle, cover_url, detail_url, owner_color, owner_name, return_api) %}
+{% set days = (now - loan.loaned_at).days %}
+<div class="card border-0 shadow-sm loan-row">
+  <div class="card-body py-3 px-4">
+    <div class="d-flex align-items-center gap-3">
+      <a href="{{ detail_url }}" class="flex-shrink-0">
+        {% if cover_url %}
+        <img src="{{ cover_url }}" alt="" style="width:44px;height:64px;object-fit:cover;border-radius:4px;display:block">
+        {% else %}
+        <div style="width:44px;height:64px;background:#e9ecef;border-radius:4px;display:flex;align-items:center;justify-content:center">
+          <i class="bi bi-collection-play text-muted"></i>
+        </div>
+        {% endif %}
+      </a>
+      <div class="flex-grow-1 min-w-0">
+        <a href="{{ detail_url }}" class="fw-semibold text-dark text-decoration-none">{{ title }}</a>
+        {% if subtitle %}<div class="text-muted small text-truncate">{{ subtitle }}</div>{% endif %}
+        <div class="d-flex flex-wrap align-items-center gap-2 mt-1" style="column-gap:.75rem">
+          <span><i class="bi bi-person me-1 text-muted"></i><strong>{{ loan.loaned_to }}</strong></span>
+          <span class="text-muted small">since {{ loan.loaned_at.strftime('%b %-d, %Y') }}</span>
+          <span class="badge rounded-pill text-white" style="background:{{ owner_color }}">{{ owner_name }}</span>
+          {% if loan.notes %}<span class="text-muted small fst-italic">{{ loan.notes }}</span>{% endif %}
+        </div>
+      </div>
+      <div class="text-center flex-shrink-0 d-none d-sm-block" style="min-width:64px">
+        <div class="fw-bold lh-1"
+             style="font-size:1.75rem;color:{% if days >= 14 %}#dc3545{% elif days >= 7 %}#fd7e14{% else %}#0d6efd{% endif %}">
+          {{ days }}
+        </div>
+        <div class="text-muted" style="font-size:.7rem;margin-top:.1rem">day{{ 's' if days != 1 }}</div>
+      </div>
+      <div class="flex-shrink-0">
+        <button class="btn btn-sm btn-outline-success return-btn"
+                data-return-api="{{ return_api }}"
+                data-title="{{ title }}"
+                data-loaned-to="{{ loan.loaned_to }}">
+          <i class="bi bi-check-lg me-1"></i>Returned
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endmacro %}
+
+{% if loaned_count %}
+<div class="d-flex flex-column gap-2 mb-5">
+  {% if book_loans %}
+  {% if dvd_loans %}<div class="text-muted small fw-semibold text-uppercase px-1 mt-1"><i class="bi bi-book me-1"></i>Books</div>{% endif %}
+  {% for loan in book_loans %}
+    {% if current_user.is_admin or loan.user_book.user_id == current_user.id %}
+    {{ loan_row(loan, loan.user_book.book.title, loan.user_book.book.author,
+        loan.user_book.book.cover_url,
+        url_for('books.detail', book_id=loan.user_book.book.id),
+        loan.user_book.user.color, loan.user_book.user.display_name,
+        '/api/loans/' ~ loan.id) }}
+    {% endif %}
+  {% endfor %}
+  {% endif %}
+  {% if dvd_loans %}
+  {% if book_loans %}<div class="text-muted small fw-semibold text-uppercase px-1 mt-2"><i class="bi bi-collection-play me-1"></i>DVDs</div>{% endif %}
+  {% for loan in dvd_loans %}
+    {% if current_user.is_admin or loan.user_dvd.user_id == current_user.id %}
+    {{ loan_row(loan, loan.user_dvd.dvd.title, loan.user_dvd.dvd.director,
+        loan.user_dvd.dvd.cover_url,
+        url_for('dvds.detail', dvd_id=loan.user_dvd.dvd.id),
+        loan.user_dvd.user.color, loan.user_dvd.user.display_name,
+        '/api/dvd-loans/' ~ loan.id) }}
+    {% endif %}
+  {% endfor %}
+  {% endif %}
+</div>
+{% else %}
+<p class="text-muted mb-5">Nothing currently loaned out.
+  Open any book or DVD detail page and use "Loan Out" to track one.</p>
+{% endif %}
+
+
+<!-- ── Borrowed ───────────────────────────────────────────── -->
+{% set borrowed_count = borrows|length + inbound_loans|length + inbound_dvd_loans|length %}
+<div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+  <h2 class="h4 fw-bold mb-0">
+    <i class="bi bi-arrow-left me-2 text-primary"></i>Borrowed
+    {% if borrowed_count %}
+    <span class="badge bg-primary ms-1" style="font-size:.7rem;vertical-align:middle">{{ borrowed_count }}</span>
+    {% endif %}
+  </h2>
+  <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#addBorrowModal">
+    <i class="bi bi-plus me-1"></i>Log Borrowed Item
+  </button>
+</div>
+
+{% if borrowed_count %}
 <div class="d-flex flex-column gap-2">
-  {% for loan in active_loans %}
+
+  {# Items loaned to current user by family members #}
+  {% for loan in inbound_loans %}
   {% set days = (now - loan.loaned_at).days %}
-  <div class="card border-0 shadow-sm loan-row" data-loan-id="{{ loan.id }}">
+  <div class="card border-0 shadow-sm loan-row">
     <div class="card-body py-3 px-4">
       <div class="d-flex align-items-center gap-3">
-
-        <!-- Cover -->
         <a href="{{ url_for('books.detail', book_id=loan.user_book.book.id) }}" class="flex-shrink-0">
           {% if loan.user_book.book.cover_url %}
-          <img src="{{ loan.user_book.book.cover_url }}" alt=""
-               style="width:44px;height:64px;object-fit:cover;border-radius:4px;display:block">
+          <img src="{{ loan.user_book.book.cover_url }}" alt="" style="width:44px;height:64px;object-fit:cover;border-radius:4px;display:block">
           {% else %}
-          <div style="width:44px;height:64px;background:#e9ecef;border-radius:4px;
-                      display:flex;align-items:center;justify-content:center">
-            <i class="bi bi-book text-muted"></i>
-          </div>
+          <div style="width:44px;height:64px;background:#e9ecef;border-radius:4px;display:flex;align-items:center;justify-content:center"><i class="bi bi-book text-muted"></i></div>
           {% endif %}
         </a>
-
-        <!-- Book + loan info -->
         <div class="flex-grow-1 min-w-0">
-          <a href="{{ url_for('books.detail', book_id=loan.user_book.book.id) }}"
-             class="fw-semibold text-dark text-decoration-none">
-            {{ loan.user_book.book.title }}
-          </a>
-          {% if loan.user_book.book.author %}
-          <div class="text-muted small text-truncate">{{ loan.user_book.book.author }}</div>
-          {% endif %}
-          <div class="d-flex flex-wrap align-items-center gap-x-3 gap-2 mt-1" style="column-gap:.75rem">
-            <span>
-              <i class="bi bi-person me-1 text-muted"></i>
-              <strong>{{ loan.loaned_to }}</strong>
-            </span>
-            <span class="text-muted small">
-              since {{ loan.loaned_at.strftime('%b %-d, %Y') }}
-            </span>
-            <span class="badge rounded-pill text-white" style="background:{{ loan.user_book.user.color }}">
-              {{ loan.user_book.user.display_name }}
-            </span>
-            {% if loan.notes %}
-            <span class="text-muted small fst-italic">{{ loan.notes }}</span>
-            {% endif %}
+          <a href="{{ url_for('books.detail', book_id=loan.user_book.book.id) }}" class="fw-semibold text-dark text-decoration-none">{{ loan.user_book.book.title }}</a>
+          {% if loan.user_book.book.author %}<div class="text-muted small text-truncate">{{ loan.user_book.book.author }}</div>{% endif %}
+          <div class="d-flex flex-wrap align-items-center gap-2 mt-1" style="column-gap:.75rem">
+            <span><i class="bi bi-person me-1 text-muted"></i>from <span class="badge rounded-pill text-white" style="background:{{ loan.user_book.user.color }}">{{ loan.user_book.user.display_name }}</span></span>
+            <span class="text-muted small">since {{ loan.loaned_at.strftime('%b %-d, %Y') }}</span>
+            {% if loan.notes %}<span class="text-muted small fst-italic">{{ loan.notes }}</span>{% endif %}
           </div>
         </div>
-
-        <!-- Days out -->
         <div class="text-center flex-shrink-0 d-none d-sm-block" style="min-width:64px">
-          <div class="fw-bold lh-1"
-               style="font-size:1.75rem;
-                      color:{% if days >= 14 %}#dc3545{% elif days >= 7 %}#fd7e14{% else %}#0d6efd{% endif %}">
-            {{ days }}
-          </div>
-          <div class="text-muted" style="font-size:.7rem;margin-top:.1rem">
-            day{{ 's' if days != 1 }}
-          </div>
+          <div class="fw-bold lh-1" style="font-size:1.75rem;color:{% if days >= 14 %}#dc3545{% elif days >= 7 %}#fd7e14{% else %}#0d6efd{% endif %}">{{ days }}</div>
+          <div class="text-muted" style="font-size:.7rem;margin-top:.1rem">day{{ 's' if days != 1 }}</div>
         </div>
-
-        <!-- Return button -->
-        {% if current_user.is_admin or loan.user_book.user_id == current_user.id %}
         <div class="flex-shrink-0">
           <button class="btn btn-sm btn-outline-success return-btn"
-                  data-loan-id="{{ loan.id }}"
-                  data-book-title="{{ loan.user_book.book.title }}"
+                  data-return-api="/api/loans/{{ loan.id }}"
+                  data-title="{{ loan.user_book.book.title }}"
                   data-loaned-to="{{ loan.loaned_to }}">
             <i class="bi bi-check-lg me-1"></i>Returned
           </button>
         </div>
-        {% endif %}
-
       </div>
     </div>
   </div>
   {% endfor %}
-</div>
 
-{% else %}
-<div class="empty-state">
-  <i class="bi bi-check-circle display-1 text-success"></i>
-  <h4 class="mt-3 text-muted">No books currently loaned out</h4>
-  <p class="text-muted">Open a book's detail page and use "Loan Out" to track a loan.</p>
+  {# DVDs loaned to current user by family members #}
+  {% for loan in inbound_dvd_loans %}
+  {% set days = (now - loan.loaned_at).days %}
+  <div class="card border-0 shadow-sm loan-row">
+    <div class="card-body py-3 px-4">
+      <div class="d-flex align-items-center gap-3">
+        <a href="{{ url_for('dvds.detail', dvd_id=loan.user_dvd.dvd.id) }}" class="flex-shrink-0">
+          {% if loan.user_dvd.dvd.cover_url %}
+          <img src="{{ loan.user_dvd.dvd.cover_url }}" alt="" style="width:44px;height:64px;object-fit:cover;border-radius:4px;display:block">
+          {% else %}
+          <div style="width:44px;height:64px;background:#e9ecef;border-radius:4px;display:flex;align-items:center;justify-content:center"><i class="bi bi-collection-play text-muted"></i></div>
+          {% endif %}
+        </a>
+        <div class="flex-grow-1 min-w-0">
+          <a href="{{ url_for('dvds.detail', dvd_id=loan.user_dvd.dvd.id) }}" class="fw-semibold text-dark text-decoration-none">{{ loan.user_dvd.dvd.title }}</a>
+          {% if loan.user_dvd.dvd.director %}<div class="text-muted small text-truncate">{{ loan.user_dvd.dvd.director }}</div>{% endif %}
+          <div class="d-flex flex-wrap align-items-center gap-2 mt-1" style="column-gap:.75rem">
+            <span><i class="bi bi-person me-1 text-muted"></i>from <span class="badge rounded-pill text-white" style="background:{{ loan.user_dvd.user.color }}">{{ loan.user_dvd.user.display_name }}</span></span>
+            <span class="text-muted small">since {{ loan.loaned_at.strftime('%b %-d, %Y') }}</span>
+            {% if loan.notes %}<span class="text-muted small fst-italic">{{ loan.notes }}</span>{% endif %}
+          </div>
+        </div>
+        <div class="text-center flex-shrink-0 d-none d-sm-block" style="min-width:64px">
+          <div class="fw-bold lh-1" style="font-size:1.75rem;color:{% if days >= 14 %}#dc3545{% elif days >= 7 %}#fd7e14{% else %}#0d6efd{% endif %}">{{ days }}</div>
+          <div class="text-muted" style="font-size:.7rem;margin-top:.1rem">day{{ 's' if days != 1 }}</div>
+        </div>
+        <div class="flex-shrink-0">
+          <button class="btn btn-sm btn-outline-success return-btn"
+                  data-return-api="/api/dvd-loans/{{ loan.id }}"
+                  data-title="{{ loan.user_dvd.dvd.title }}"
+                  data-loaned-to="{{ loan.loaned_to }}">
+            <i class="bi bi-check-lg me-1"></i>Returned
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+
+  {# Manually logged borrows (external friends) #}
+  {% for borrow in borrows %}
+  {% set days = (now - borrow.borrowed_at).days %}
+  <div class="card border-0 shadow-sm borrow-row">
+    <div class="card-body py-3 px-4">
+      <div class="d-flex align-items-center gap-3">
+        <div style="width:44px;height:64px;background:#e9ecef;border-radius:4px;flex-shrink:0;display:flex;align-items:center;justify-content:center">
+          <i class="bi bi-box-arrow-in-left text-muted"></i>
+        </div>
+        <div class="flex-grow-1 min-w-0">
+          <div class="fw-semibold text-dark">{{ borrow.title }}</div>
+          <div class="d-flex flex-wrap align-items-center gap-2 mt-1" style="column-gap:.75rem">
+            <span><i class="bi bi-person me-1 text-muted"></i>from <strong>{{ borrow.borrowed_from }}</strong></span>
+            <span class="text-muted small">since {{ borrow.borrowed_at.strftime('%b %-d, %Y') }}</span>
+            {% if borrow.notes %}<span class="text-muted small fst-italic">{{ borrow.notes }}</span>{% endif %}
+          </div>
+        </div>
+        <div class="text-center flex-shrink-0 d-none d-sm-block" style="min-width:64px">
+          <div class="fw-bold lh-1" style="font-size:1.75rem;color:{% if days >= 14 %}#dc3545{% elif days >= 7 %}#fd7e14{% else %}#0d6efd{% endif %}">{{ days }}</div>
+          <div class="text-muted" style="font-size:.7rem;margin-top:.1rem">day{{ 's' if days != 1 }}</div>
+        </div>
+        <div class="flex-shrink-0">
+          <button class="btn btn-sm btn-outline-success return-borrow-btn"
+                  data-borrow-id="{{ borrow.id }}"
+                  data-title="{{ borrow.title }}"
+                  data-from="{{ borrow.borrowed_from }}">
+            <i class="bi bi-check-lg me-1"></i>Returned
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+
 </div>
+{% else %}
+<p class="text-muted">Nothing borrowed right now.
+  Use "Log Borrowed Item" to track something you've borrowed from a friend.</p>
 {% endif %}
+
+
+<!-- Add borrow modal -->
+<div class="modal fade" id="addBorrowModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-box-arrow-in-left me-2"></i>Log Borrowed Item</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="alert alert-danger d-none" id="borrowError"></div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Title <span class="text-danger">*</span></label>
+          <input type="text" class="form-control" id="borrow-title" placeholder="Book or DVD title" autocomplete="off" />
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Borrowed from <span class="text-danger">*</span></label>
+          {{ user_picker('borrow-from', current_user.id) }}
+          <input type="text" class="form-control" id="borrow-from"
+                 placeholder="Select above or type a name…" autocomplete="off" />
+        </div>
+        <div class="mb-0">
+          <label class="form-label">Notes <small class="text-muted">(optional)</small></label>
+          <input type="text" class="form-control" id="borrow-notes" placeholder="e.g. Return by end of month" />
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-primary" id="borrowSubmit">
+          <i class="bi bi-plus-circle me-1"></i>Log It
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
 <script>
+// ── Loaned out: mark returned ──────────────────────────────
 document.querySelectorAll('.return-btn').forEach(btn => {
   btn.addEventListener('click', async () => {
-    const title    = btn.dataset.bookTitle;
+    const title    = btn.dataset.title;
     const loanedTo = btn.dataset.loanedTo;
     if (!confirm(`Mark "${title}" as returned from ${loanedTo}?`)) return;
 
     btn.disabled = true;
     try {
-      const res  = await fetch(`/api/loans/${btn.dataset.loanId}/return`, { method: 'PATCH' });
+      const res  = await fetch(`${btn.dataset.returnApi}/return`, { method: 'PATCH' });
       const data = await res.json();
       if (data.success) {
         const row = btn.closest('.loan-row');
         row.style.transition = 'opacity .2s';
-        row.style.opacity = '0';
-        setTimeout(() => {
-          row.remove();
-          if (!document.querySelector('.loan-row')) location.reload();
-        }, 200);
+        row.style.opacity    = '0';
+        setTimeout(() => { row.remove(); if (!document.querySelector('.loan-row')) location.reload(); }, 200);
       } else {
-        alert(data.error || 'Failed to mark as returned.');
+        alert(data.error || 'Failed.');
         btn.disabled = false;
       }
     } catch {
@@ -126,6 +291,76 @@ document.querySelectorAll('.return-btn').forEach(btn => {
       btn.disabled = false;
     }
   });
+});
+
+// ── Borrowed: mark returned ────────────────────────────────
+document.querySelectorAll('.return-borrow-btn').forEach(btn => {
+  btn.addEventListener('click', async () => {
+    if (!confirm(`Mark "${btn.dataset.title}" as returned to ${btn.dataset.from}?`)) return;
+
+    btn.disabled = true;
+    try {
+      const res  = await fetch(`/api/borrows/${btn.dataset.borrowId}/return`, { method: 'PATCH' });
+      const data = await res.json();
+      if (data.success) {
+        const row = btn.closest('.borrow-row');
+        row.style.transition = 'opacity .2s';
+        row.style.opacity    = '0';
+        setTimeout(() => { row.remove(); if (!document.querySelector('.borrow-row')) location.reload(); }, 200);
+      } else {
+        alert(data.error || 'Failed.');
+        btn.disabled = false;
+      }
+    } catch {
+      alert('Network error.');
+      btn.disabled = false;
+    }
+  });
+});
+
+// ── Log a new borrowed item ────────────────────────────────
+const addBorrowModal = bootstrap.Modal.getOrCreateInstance(document.getElementById('addBorrowModal'));
+
+document.getElementById('addBorrowModal').addEventListener('shown.bs.modal', () => {
+  document.getElementById('borrow-title').focus();
+});
+
+document.getElementById('addBorrowModal').addEventListener('show.bs.modal', () => {
+  document.getElementById('borrow-title').value = '';
+  document.getElementById('borrow-from').value  = '';
+  document.getElementById('borrow-notes').value = '';
+  document.getElementById('borrowError').classList.add('d-none');
+});
+
+document.getElementById('borrowSubmit').addEventListener('click', async () => {
+  const title = document.getElementById('borrow-title').value.trim();
+  const from  = document.getElementById('borrow-from').value.trim();
+  const errEl = document.getElementById('borrowError');
+  errEl.classList.add('d-none');
+
+  if (!title || !from) {
+    errEl.textContent = 'Title and borrowed from are required.';
+    errEl.classList.remove('d-none');
+    return;
+  }
+
+  const btn = document.getElementById('borrowSubmit');
+  btn.disabled = true;
+  try {
+    const res  = await fetch('/api/borrows', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title, borrowed_from: from, notes: document.getElementById('borrow-notes').value.trim() }),
+    });
+    const data = await res.json();
+    if (data.success) { addBorrowModal.hide(); location.reload(); }
+    else { errEl.textContent = data.error || 'Failed.'; errEl.classList.remove('d-none'); }
+  } catch {
+    errEl.textContent = 'Network error.';
+    errEl.classList.remove('d-none');
+  } finally {
+    btn.disabled = false;
+  }
 });
 </script>
 {% endblock %}

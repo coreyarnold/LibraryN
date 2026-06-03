@@ -175,7 +175,7 @@ def test_loans_page_requires_auth(client):
 def test_loans_page_empty_state(logged_in_client):
     r = logged_in_client.get('/loans')
     assert r.status_code == 200
-    assert b'No books currently loaned out' in r.data
+    assert b'Nothing currently loaned out' in r.data
 
 
 def test_loans_page_shows_active_loan(logged_in_client):

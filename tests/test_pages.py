@@ -247,3 +247,136 @@ def test_profile_wrong_current_password_rejected(logged_in_client):
     }, follow_redirects=True)
     assert r.status_code == 200
     assert b'incorrect' in r.data.lower()
+
+
+# ---------------------------------------------------------------------------
+# DVD pages
+# ---------------------------------------------------------------------------
+
+def test_dvds_index_renders(logged_in_client):
+    r = logged_in_client.get('/dvds')
+    assert r.status_code == 200
+    assert b'All DVDs' in r.data
+
+
+def test_dvds_index_requires_auth(client):
+    r = client.get('/dvds')
+    assert r.status_code == 302
+
+
+def test_dvds_index_search(logged_in_client):
+    logged_in_client.post('/api/dvds', json={'upc': '025192310638', 'title': 'Fast Five', 'director': 'Justin Lin'})
+    r = logged_in_client.get('/dvds?q=Fast')
+    assert r.status_code == 200
+    assert b'Fast Five' in r.data
+
+
+def test_dvds_index_empty_state(logged_in_client):
+    r = logged_in_client.get('/dvds')
+    assert r.status_code == 200
+    assert b'Scan a DVD' in r.data
+
+
+def test_dvds_detail_renders(logged_in_client, app):
+    r = logged_in_client.post('/api/dvds', json={
+        'upc': '025192310638', 'title': 'Fast Five',
+        'director': 'Justin Lin', 'format': 'Blu-ray',
+    })
+    dvd_id = r.get_json()['dvd_id']
+
+    r = logged_in_client.get(f'/dvds/{dvd_id}')
+    assert r.status_code == 200
+    assert b'Fast Five' in r.data
+    assert b'Justin Lin' in r.data
+    assert b'Loan Out' in r.data
+
+
+def test_dvds_detail_requires_auth(logged_in_client, app):
+    r = logged_in_client.post('/api/dvds', json={'upc': '025192310638', 'title': 'Fast Five'})
+    dvd_id = r.get_json()['dvd_id']
+
+    anon = app.test_client()
+    r = anon.get(f'/dvds/{dvd_id}')
+    assert r.status_code == 302
+
+
+def test_dvds_detail_404_for_missing(logged_in_client):
+    r = logged_in_client.get('/dvds/99999')
+    assert r.status_code == 404
+
+
+def test_dvd_scan_page_renders(logged_in_client):
+    r = logged_in_client.get('/dvd-scan')
+    assert r.status_code == 200
+    assert b'Scan a DVD' in r.data
+    assert b'upc-input' in r.data
+
+
+def test_dvd_scan_page_requires_auth(client):
+    r = client.get('/dvd-scan')
+    assert r.status_code == 302
+
+
+# ---------------------------------------------------------------------------
+# Dashboard with DVDs
+# ---------------------------------------------------------------------------
+
+def test_dashboard_shows_books_and_dvds(logged_in_client):
+    logged_in_client.post('/api/books', json={'isbn': '9780743273565', 'title': 'The Great Gatsby'})
+    logged_in_client.post('/api/dvds',  json={'upc': '025192310638',  'title': 'Fast Five'})
+
+    r = logged_in_client.get('/dashboard')
+    assert r.status_code == 200
+    assert b'The Great Gatsby' in r.data
+    assert b'Fast Five' in r.data
+
+
+def test_dashboard_stats_include_dvds(logged_in_client):
+    logged_in_client.post('/api/books', json={'isbn': '9780743273565', 'title': 'Book One'})
+    logged_in_client.post('/api/dvds',  json={'upc': '025192310638',  'title': 'DVD One'})
+
+    r = logged_in_client.get('/dashboard')
+    assert r.status_code == 200
+    # 2 total copies, 2 unique titles
+    assert b'2' in r.data
+
+
+def test_dashboard_filter_by_user_shows_only_their_media(logged_in_client, app):
+    from app.models import User
+    with app.app_context():
+        admin_id = User.query.filter_by(username='admin').first().id
+
+    logged_in_client.post('/api/books', json={'isbn': '9780743273565', 'title': 'Admin Book'})
+    logged_in_client.post('/api/dvds',  json={'upc': '025192310638',  'title': 'Admin DVD'})
+
+    r = logged_in_client.get(f'/dashboard?user_id={admin_id}')
+    assert r.status_code == 200
+    assert b'Admin Book' in r.data
+    assert b'Admin DVD' in r.data
+
+
+def test_loans_page_shows_dvd_loans(logged_in_client):
+    r = logged_in_client.post('/api/dvds', json={'upc': '025192310638', 'title': 'Fast Five'})
+    ud_id = r.get_json()['user_dvd_id']
+    logged_in_client.post('/api/dvd-loans', json={'user_dvd_id': ud_id, 'loaned_to': 'Dave'})
+
+    r = logged_in_client.get('/loans')
+    assert r.status_code == 200
+    assert b'Fast Five' in r.data
+    assert b'Dave' in r.data
+
+
+def test_loans_page_shows_books_and_dvds_together(logged_in_client):
+    logged_in_client.post('/api/books', json={'isbn': '9780743273565', 'title': 'Great Gatsby'})
+    r_book = logged_in_client.get('/api/lookup/9780743273565')
+    # Add book loan
+    r = logged_in_client.post('/api/books', json={'isbn': '9780743273565', 'title': 'Great Gatsby'})
+    ub_id = logged_in_client.post('/api/books', json={'isbn': '9780062315007', 'title': 'Second Book'}).get_json().get('user_book_id')
+
+    r_dvd = logged_in_client.post('/api/dvds', json={'upc': '025192310638', 'title': 'Fast Five'})
+    ud_id = r_dvd.get_json()['user_dvd_id']
+    logged_in_client.post('/api/dvd-loans', json={'user_dvd_id': ud_id, 'loaned_to': 'Dave'})
+
+    r = logged_in_client.get('/loans')
+    assert r.status_code == 200
+    assert b'Fast Five' in r.data
