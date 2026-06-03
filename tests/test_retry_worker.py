@@ -78,7 +78,7 @@ def test_enqueue_creates_entry(logged_in_client, app):
     assert 'queue_id' in data
 
     with app.app_context():
-        item = ScanRetryQueue.query.get(data['queue_id'])
+        item = db.session.get(ScanRetryQueue, data["queue_id"])
         assert item.identifier == _BOOK_ISBN
         assert item.media_type == 'book'
         assert item.attempt == 0
@@ -128,7 +128,7 @@ def test_tick_skips_future_items(app):
 def test_tick_skips_completed_items(app):
     item_id = _enqueue(app)
     with app.app_context():
-        item = ScanRetryQueue.query.get(item_id)
+        item = db.session.get(ScanRetryQueue, item_id)
         item.completed_at = datetime.utcnow()
         item.succeeded = False
         db.session.commit()
@@ -150,7 +150,7 @@ def test_book_success_adds_to_library(app):
         _tick(app)
 
     with app.app_context():
-        item = ScanRetryQueue.query.get(item_id)
+        item = db.session.get(ScanRetryQueue, item_id)
         assert item.succeeded is True
         assert item.completed_at is not None
         assert Book.query.filter_by(isbn=_BOOK_ISBN).count() == 1
@@ -200,7 +200,7 @@ def test_book_already_in_library_marks_succeeded(app):
         _tick(app)
 
     with app.app_context():
-        item = ScanRetryQueue.query.get(item_id)
+        item = db.session.get(ScanRetryQueue, item_id)
         assert item.succeeded is True
         assert UserBook.query.count() == 1  # no duplicate
 
@@ -217,7 +217,7 @@ def test_dvd_success_adds_to_library(app):
         _tick(app)
 
     with app.app_context():
-        item = ScanRetryQueue.query.get(item_id)
+        item = db.session.get(ScanRetryQueue, item_id)
         assert item.succeeded is True
         assert DVD.query.filter_by(upc=_DVD_UPC).count() == 1
         assert UserDVD.query.count() == 1
@@ -250,7 +250,7 @@ def test_first_failure_schedules_second_attempt(app):
         _tick(app)
 
     with app.app_context():
-        item = ScanRetryQueue.query.get(item_id)
+        item = db.session.get(ScanRetryQueue, item_id)
         assert item.attempt == 1
         assert item.completed_at is None
         assert item.next_retry_at >= before + timedelta(seconds=ScanRetryQueue.DELAYS[1] - 2)
@@ -266,7 +266,7 @@ def test_second_failure_schedules_third_attempt(app):
         _tick(app)
 
     with app.app_context():
-        item = ScanRetryQueue.query.get(item_id)
+        item = db.session.get(ScanRetryQueue, item_id)
         assert item.attempt == 2
         assert item.next_retry_at >= before + timedelta(seconds=ScanRetryQueue.DELAYS[2] - 2)
 
@@ -280,7 +280,7 @@ def test_third_failure_marks_permanently_failed(app):
         _tick(app)
 
     with app.app_context():
-        item = ScanRetryQueue.query.get(item_id)
+        item = db.session.get(ScanRetryQueue, item_id)
         assert item.attempt == 3
         assert item.succeeded is False
         assert item.completed_at is not None
@@ -308,7 +308,7 @@ def test_not_found_on_final_attempt_marks_failed(app):
         _tick(app)
 
     with app.app_context():
-        item = ScanRetryQueue.query.get(item_id)
+        item = db.session.get(ScanRetryQueue, item_id)
         assert item.succeeded is False
 
 
@@ -341,5 +341,5 @@ def test_missing_target_user_marks_failed(app):
         _tick(app)  # should not raise
 
     with app.app_context():
-        item = ScanRetryQueue.query.get(item_id)
+        item = db.session.get(ScanRetryQueue, item_id)
         assert item.succeeded is False
